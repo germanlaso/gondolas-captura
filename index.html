@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Captura de Góndolas</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <style>
+    :root{--bg:#0f172a;--fg:#e5e7eb;--muted:#94a3b8;--accent:#22c55e;--danger:#ef4444;--card:#111827;--btn:#2563eb;}
+    html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial}
+    .wrap{max-width:520px;margin:0 auto;padding:16px 14px 40px}
+    .card{background:#0b1220;border:1px solid #202a44;border-radius:16px;padding:16px;box-shadow:0 6px 18px rgba(0,0,0,.35)}
+    h1{font-size:22px;margin:.3rem 0 1rem}
+    label{display:block;font-size:14px;color:var(--muted);margin:8px 0 6px}
+    input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #29324c;background:#0e1629;color:var(--fg);font-size:16px}
+    .row{display:flex;gap:10px;align-items:center}
+    .row > * {flex:1}
+    button{appearance:none;border:0;background:var(--btn);color:white;border-radius:12px;padding:12px 14px;font-size:16px;font-weight:600;cursor:pointer}
+    body{margin:0;background:#0f172a;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+    .wrap{max-width:520px;margin:0 auto;padding:16px}
+    .card{background:#0b1220;border:1px solid #202a44;border-radius:16px;padding:16px}
+    label{display:block;font-size:14px;color:#94a3b8;margin:8px 0 6px}
+    input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #29324c;background:#0e1629;color:#e5e7eb;font-size:16px}
+    button{border:0;background:#2563eb;color:white;border-radius:12px;padding:12px 14px;font-size:16px;font-weight:600;cursor:pointer}
+    button.secondary{background:#334155}
+    button.ok{background:var(--accent)}
+    button.danger{background:var(--danger)}
+    button:disabled{opacity:.5;cursor:not-allowed}
+    .videoBox{position:relative;border-radius:16px;overflow:hidden;background:#0b1220;margin-top:12px;border:1px solid #223}
+    video{width:100%;height:auto;display:block;background:black}
+    canvas{display:none}
+    .status{margin-top:12px;font-size:14px;color:var(--muted)}
+    .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#1f2937;color:#a7f3d0;border:1px solid #134e4a;font-size:12px}
+    .spacer{height:8px}
+    .videoBox{border-radius:16px;overflow:hidden;background:black;margin-top:12px;border:1px solid #223}
+    video{width:100%;height:auto;display:block}
+    .status{margin-top:12px;font-size:14px;color:#94a3b8}
+    #gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+    .thumb{position:relative;border:1px solid #223;border-radius:10px;overflow:hidden}
+    .thumb img{width:100%;display:block}
+    .thumb button{position:absolute;top:4px;right:4px;background:#1f2937;color:#fff;border:0;border-radius:8px;padding:4px 6px;cursor:pointer}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Captura de Góndolas</h1>
+
+      <!-- LOGIN -->
+      <label for="user">Usuario</label>
+      <input id="user" autocomplete="username" placeholder="ej: rponedor01" />
+
+      <label for="pass">Contraseña</label>
+      <input id="pass" type="password" autocomplete="current-password" placeholder="••••••••" />
+
+      <!-- SALA -->
+      <label for="room">N° de Sala</label>
+      
+
+      <input
+        id="room"
+        type="text"
+        inputmode="text"
+        autocapitalize="characters"
+        autocomplete="off"
+        spellcheck="false"
+        maxlength="20"
+        placeholder="ej: A01"
+      />
+
+
+
+      <div class="spacer"></div>
+
+      <!-- CONTROLES CÁMARA -->
+      <div class="row">
+        <button id="btnStart">Iniciar cámara</button>
+        <button id="btnCapture" class="secondary" disabled>Capturar</button>
+      </div>
+
+      <div class="videoBox">
+        <video id="camera" autoplay playsinline muted></video>
+        <canvas id="snapshot"></canvas>
+      </div>
+
+      <div class="row" style="margin-top:10px">
+        <button id="btnRetake" class="secondary" disabled>Repetir</button>
+        <button id="btnSend" class="ok" disabled>Enviar foto</button>
+      </div>
+
+      <div class="status">
+        <span id="msg" class="pill">Listo</span>
+      </div>
+    </div>
+<div class="wrap"><div class="card">
+  <h1>Captura de Góndolas</h1>
+
+  <label>Usuario</label>
+  <input id="user" autocomplete="username" />
+
+  <label>Contraseña</label>
+  <input id="pass" type="password" autocomplete="current-password" />
+
+  <label>N° de sala</label>
+  <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
+
+  <div style="display:flex;gap:10px;margin-top:8px">
+    <button id="btnStart">Iniciar cámara</button>
+    <button id="btnCapture" class="secondary" disabled>Capturar</button>
+  </div>
+
+  <script>
+    // ================== CONFIG ==================
+    // Reemplaza por la URL de tu Flow (trigger HTTP) incluyendo ?code=...
+    const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/4aed5c90b202408e94b24dc0fa907459/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=IWhG4QGQtHkv9AqdFYcRccjS38IjPuPPGZ4DKW5Lbpo";
+    // Tamaño máximo (px) del lado más largo al comprimir
+    const MAX_DIM = 1600;
+    const JPEG_QUALITY = 0.85;
+
+    // ================== REFERENCIAS UI ==================
+    const $user = document.getElementById('user');
+    const $pass = document.getElementById('pass');
+    const $room = document.getElementById('room');
+    const $btnStart = document.getElementById('btnStart');
+    const $btnCapture = document.getElementById('btnCapture');
+    const $btnSend = document.getElementById('btnSend');
+    const $btnRetake = document.getElementById('btnRetake');
+    const $video = document.getElementById('camera');
+    const $canvas = document.getElementById('snapshot');
+    const $msg = document.getElementById('msg');
+
+    let stream = null;
+    let photoReady = false;
+
+    function status(text, ok = true) {
+      $msg.textContent = text;
+      $msg.style.background = ok ? '#052e16' : '#3f1d1d';
+      $msg.style.color = ok ? '#a7f3d0' : '#fecaca';
+      $msg.style.border = ok ? '1px solid #134e4a' : '1px solid #7f1d1d';
+    }
+  <div class="videoBox"><video id="camera" autoplay playsinline muted></video><canvas id="snapshot" style="display:none"></canvas></div>
+
+    function requireHttps() {
+      if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+        status('Se requiere HTTPS para usar la cámara (abra la versión segura)', false);
+        $btnStart.disabled = true;
+      }
+    }
+  <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+    <button id="btnRetake" class="secondary" disabled>Repetir</button>
+    <button id="btnAddPhoto" class="secondary" disabled>Agregar foto</button>
+    <button id="btnSendBatch" disabled>Enviar lote</button>
+  </div>
+
+    async function startCamera() {
+      if (!validateLogin(false) || !validateRoom(false)) return;
+      try {
+        // Cámara trasera
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: "environment" },
+            width: { ideal: 1920 },
+            height: { ideal: 1080 }
+          },
+          audio: false
+        });
+        $video.srcObject = stream;
+        $btnCapture.disabled = false;
+        status('Cámara lista. Puede capturar.');
+      } catch (e) {
+        console.error(e);
+        status('No se pudo acceder a la cámara. Revise permisos del navegador.', false);
+  <!-- Galería de fotos pendientes -->
+  <div id="gallery"></div>
+
+  <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes</span></div>
+</div></div>
+
+<script>
+/* =================== Config =================== */
+const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc"; // Pega aquí la URL del trigger HTTP
+const MAX_DIM = 1600, JPEG_QUALITY = 0.82;
+const BATCH_MAX_IMAGES = 5;           // tamaño de sub-lotes
+const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000;
+
+/* =================== Estado/UI =================== */
+const $user = document.getElementById('user');
+const $pass = document.getElementById('pass');
+const $room = document.getElementById('room');
+const $btnStart = document.getElementById('btnStart');
+const $btnCapture = document.getElementById('btnCapture');
+const $btnRetake = document.getElementById('btnRetake');
+const $btnAddPhoto = document.getElementById('btnAddPhoto');
+const $btnSendBatch = document.getElementById('btnSendBatch');
+const $video = document.getElementById('camera');
+const $canvas = document.getElementById('snapshot');
+const $msg = document.getElementById('msg');
+const $gallery = document.getElementById('gallery');
+const $queueMsg = document.getElementById('queueMsg');
+
+let stream=null, photoReady=false, currentJpegB64=null;
+
+function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
+function normalizeRoom(v){ return (v||"").toUpperCase().trim().replace(/\s+/g,''); }
+function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
+
+/* =================== Cámara =================== */
+async function startCamera(){
+  if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
+    status('Complete usuario/clave y sala válida', false); return;
+  }
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
+    $video.srcObject = stream; $btnCapture.disabled=false; status('Cámara lista');
+  }catch(e){ status('No se pudo acceder a la cámara',false); }
+}
+function capture(){
+  const vw=$video.videoWidth, vh=$video.videoHeight;
+  if(!vw || !vh){ status('Cámara no lista',false); return;}
+  const long=Math.max(vw,vh), scale = long>MAX_DIM? MAX_DIM/long:1;
+  const tw=Math.round(vw*scale), th=Math.round(vh*scale);
+  $canvas.width=tw; $canvas.height=th;
+  const ctx=$canvas.getContext('2d',{alpha:false});
+  ctx.drawImage($video,0,0,tw,th);
+  photoReady=true;
+  currentJpegB64 = $canvas.toDataURL('image/jpeg', JPEG_QUALITY).split(',')[1]; // solo base64
+  $btnAddPhoto.disabled=false; $btnRetake.disabled=false; $btnCapture.disabled=true;
+  status('Foto capturada. Puedes agregarla al lote.');
+}
+
+/* =================== IndexedDB (cola offline) =================== */
+let db;
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open('auditoria-gondolas-db', 1);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('captures')) db.createObjectStore('captures',{keyPath:'image_id'});
+      if(!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox',{keyPath:'batch_id'});
+      if(!db.objectStoreNames.contains('processed')) db.createObjectStore('processed',{keyPath:'image_id'});
+    };
+    req.onsuccess = ()=>{db=req.result; resolve(db);};
+    req.onerror = ()=>reject(req.error);
+  });
+}
+function tx(store, mode='readonly'){ return db.transaction(store, mode).objectStore(store); }
+function put(store, val){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
+function del(store, key){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
+function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);}); }
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+
+/* =================== Galería =================== */
+async function refreshGallery(){
+  const items = await getAll('captures');
+  $gallery.innerHTML = '';
+  items.forEach(it=>{
+    const d=document.createElement('div'); d.className='thumb';
+    d.innerHTML = `
+      <img alt="foto" src="data:image/jpeg;base64,${it.image_base64}">
+      <button title="Quitar" data-id="${it.image_id}">✕</button>
+    `;
+    d.querySelector('button').onclick = async (e)=>{
+      await del('captures', e.target.dataset.id);
+      await refreshGallery();
+      await updateQueueState();
+    };
+    $gallery.appendChild(d);
+  });
+  $btnSendBatch.disabled = items.length===0;
+}
+async function updateQueueState(){
+  const cap = await getAll('captures');
+  const out = await getAll('outbox');
+  $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
+}
+
+/* =================== Flujo de agregar y enviar =================== */
+async function addCurrentPhotoToQueue(){
+  if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
+  const image = {
+    image_id: uuid(),
+    room_code: normalizeRoom($room.value),
+    user: $user.value.trim(),
+    client_time: new Date().toISOString(),
+    device: { ua:navigator.userAgent, platform:navigator.platform, lang:navigator.language },
+    image_base64: currentJpegB64
+  };
+  await put('captures', image);
+  // reset estado de captura
+  photoReady=false; currentJpegB64=null; $btnAddPhoto.disabled=true; $btnCapture.disabled=false; $btnRetake.disabled=true;
+  await refreshGallery(); await updateQueueState();
+  status('Foto agregada a la cola.');
+}
+
+async function buildAndStageBatches(){
+  const items = await getAll('captures');
+  if(items.length===0) return;
+  for(let i=0; i<items.length; i+=BATCH_MAX_IMAGES){
+    const chunk = items.slice(i, i+BATCH_MAX_IMAGES);
+    const batch = {
+      batch_id: uuid(),
+      room_code: normalizeRoom($room.value),
+      user: $user.value.trim(),
+      created_at: new Date().toISOString(),
+      images: chunk.map(({image_id, image_base64, client_time, device})=>({ image_id, image_base64, client_time, device }))
+    };
+    await put('outbox', batch);
+    for(const it of chunk){ await del('captures', it.image_id); }
+  }
+  await refreshGallery(); await updateQueueState();
+}
+
+async function sendOutboxOnce(){
+  const batches = await getAll('outbox');
+  for(const b of batches){
+    try{
+      const res = await fetch(FLOW_UPLOAD_URL, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          user: $user.value.trim(),
+          password: $pass.value.trim(),
+          room_code: b.room_code,
+          batch_id: b.batch_id,
+          images: b.images  // cada image tiene image_id y base64 sin prefijo
+        })
+      });
+      const data = await res.json().catch(()=>({ok:res.ok}));
+      if(res.ok && data.ok){
+        // marcar imágenes como procesadas (idempotencia cliente)
+        for(const img of b.images){ await put('processed',{image_id: img.image_id, ts: Date.now()}); }
+        await del('outbox', b.batch_id);
+      }else{
+        throw new Error('HTTP batch error');
+      }
+    }catch(e){
+      // mantener el batch en outbox para reintento
+    }
+  }
+  await updateQueueState();
+}
+
+let backoff = RETRY_BASE_MS;
+async function sendOutboxWithRetry(){
+  await sendOutboxOnce();
+  const out = await getAll('outbox');
+  if(out.length===0){ backoff = RETRY_BASE_MS; return; }
+  backoff = Math.min(backoff*2, RETRY_MAX_MS);
+  setTimeout(sendOutboxWithRetry, backoff);
+}
+
+/* =================== Background Sync & conectividad =================== */
+async function triggerBGSync(){
+  if('serviceWorker' in navigator && 'SyncManager' in window){
+    const reg = await navigator.serviceWorker.ready;
+    try { await reg.sync.register('sync-outbox'); }
+    catch { sendOutboxWithRetry(); }
+  }else{
+    // iOS Safari / navegadores sin BG Sync
+    sendOutboxWithRetry();
+  }
+}
+
+window.addEventListener('online', ()=>{ status('Conectado. Reanudando envíos…'); triggerBGSync(); });
+window.addEventListener('offline', ()=>{ status('Sin conexión. Guardando en cola…', false); });
+document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') triggerBGSync(); });
+
+/* =================== Eventos UI =================== */
+$btnStart.onclick = startCamera;
+$btnCapture.onclick = capture;
+$btnRetake.onclick = ()=>{
+  $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true;
+  photoReady=false; currentJpegB64=null; status('Repita la captura.');
+};
+$btnAddPhoto.onclick = addCurrentPhotoToQueue;
+$btnSendBatch.onclick = async ()=>{
+  await buildAndStageBatches();
+  await triggerBGSync();
+  status('Lote en cola de envío. Se subirá cuando haya señal.');
+};
+
+/* =================== Init =================== */
+openDB().then(()=>{ refreshGallery(); updateQueueState(); });
+
+// Registro del Service Worker
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').catch(()=>{ /* sin SW igual funciona */ });
+}
+</script>
+</body>
+</html>
+
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+    }
+
+    function validateLogin(show=true) {
+      const ok = $user.value.trim().length >= 3 && $pass.value.trim().length >= 4;
+      if (!ok && show) status('Ingrese usuario y contraseña válidos.', false);
+      return ok;
+    }
+
+    function validateRoom(show=true) {
+      const ok = $room.value.trim().length >= 1;
+      if (!ok && show) status('Ingrese el número de sala.', false);
+      return ok;
+    }
+
+    function captureFrameToCanvas() {
+      const vw = $video.videoWidth, vh = $video.videoHeight;
+      if (!vw || !vh) { status('La cámara aún no está lista.', false); return false; }
+
+      // Calcular resize manteniendo proporción
+      let tw = vw, th = vh;
+      const longSide = Math.max(vw, vh);
+      if (longSide > MAX_DIM) {
+        const scale = MAX_DIM / longSide;
+        tw = Math.round(vw * scale);
+        th = Math.round(vh * scale);
+      }
+
+      $canvas.width = tw;
+      $canvas.height = th;
+
+      const ctx = $canvas.getContext('2d', { alpha: false });
+      ctx.drawImage($video, 0, 0, tw, th);
+      return true;
+    }
+
+    function getJpegBase64() {
+      // Exporta sin EXIF (canvas lo descarta)
+      const dataUrl = $canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+      // dataUrl = "data:image/jpeg;base64,...."
+      return dataUrl.split(',')[1];
+    }
+
+    function deviceInfo() {
+      return {
+        ua: navigator.userAgent,
+        platform: navigator.platform,
+        lang: navigator.language
+      };
+    }
+
+    async function sendPhoto() {
+      if (!validateLogin() || !validateRoom()) return;
+      if (!photoReady) { status('Primero capture una foto.', false); return; }
+
+      const payload = {
+        user: $user.value.trim(),
+        password: $pass.value.trim(),
+        room_code: $room.value.trim(),
+        client_time: new Date().toISOString(),
+        image_base64: getJpegBase64(),
+        device: deviceInfo()
+      };
+
+      try {
+        $btnSend.disabled = true;
+        status('Enviando foto...');
+
+        const res = await fetch(FLOW_UPLOAD_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }, // sin headers custom → evita preflight
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const t = await res.text();
+          throw new Error('HTTP ' + res.status + ' ' + t);
+        }
+        const data = await res.json().catch(()=>({ok:true}));
+
+        if (data.ok) {
+          status('Foto enviada correctamente ✅');
+          // Preparar siguiente captura
+          photoReady = false;
+          $btnSend.disabled = true;
+          $btnRetake.disabled = true;
+          $btnCapture.disabled = false;
+        } else {
+          status('El servidor rechazó la solicitud.', false);
+        }
+      } catch (e) {
+        console.error(e);
+        status('Error al enviar la foto. Revise conexión o credenciales.', false);
+      } finally {
+        $btnSend.disabled = false;
+      }
+    }
+
+    // ============== EVENTOS UI ==============
+    $btnStart.addEventListener('click', async () => {
+      if (!validateLogin() || !validateRoom()) return;
+      await startCamera();
+    });
+
+    $btnCapture.addEventListener('click', () => {
+      if (!captureFrameToCanvas()) return;
+      photoReady = true;
+      status('Foto capturada. Puede enviar.');
+      $btnSend.disabled = false;
+      $btnRetake.disabled = false;
+      $btnCapture.disabled = true;
+    });
+
+    $btnRetake.addEventListener('click', () => {
+      photoReady = false;
+      status('Repita la captura.');
+      $btnSend.disabled = true;
+      $btnRetake.disabled = true;
+      $btnCapture.disabled = false;
+    });
+
+    $btnSend.addEventListener('click', sendPhoto);
+
+    // ============== INICIO ==============
+    requireHttps();
+    // Sugerencia: persistir usuario entre sesiones
+    $user.value = localStorage.getItem('last_user') || '';
+    $user.addEventListener('change', () => localStorage.setItem('last_user', $user.value));
+  </script>
+</body>
+</html>
