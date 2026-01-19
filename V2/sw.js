@@ -1,3 +1,4 @@
+
 // sw.js — cache + background sync (v3.1, scope-safe)
 const CACHE = 'gondolas-v3-1';
 const SCOPE_URL = new URL(self.registration.scope);
@@ -25,31 +26,4 @@ self.addEventListener('fetch', (event) => {
         const net = await fetch(req);
         const copy = net.clone();
         caches.open(CACHE).then(c => c.put(req, copy));
-        return net;
-      } catch {
-        const cached = await caches.match(req);
-        if (cached) return cached;
-        return caches.match(`${BASE}/`);
-      }
-    })());
-    return;
-  }
-  if (req.method === 'GET') {
-    event.respondWith(
-      caches.match(req).then(hit => hit || fetch(req).then(resp => {
-        const copy = resp.clone();
-        caches.open(CACHE).then(c => c.put(req, copy));
-        return resp;
-      }).catch(() => caches.match(`${BASE}/`)))
-    );
-  }
-});
 
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-outbox') {
-    event.waitUntil((async () => {
-      const allClients = await self.clients.matchAll({ includeUncontrolled: true });
-      for (const c of allClients) c.postMessage({ type:'SYNC_OUTBOX' });
-    })());
-  }
-});
