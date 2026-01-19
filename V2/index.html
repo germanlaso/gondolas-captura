@@ -14,22 +14,43 @@
     button{border:0;background:#2563eb;color:white;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600;cursor:pointer}
     button.secondary{background:#334155}
     .row{display:flex;gap:10px;flex-wrap:wrap}
-    .videoBox{border-radius:16px;overflow:hidden;background:black;margin-top:12px;border:1px solid #223;min-height:200px}
-    video{width:100%;height:auto;display:block}
     .status{margin-top:12px;font-size:14px;color:#94a3b8}
     #gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
     .thumb{position:relative;border:1px solid #223;border-radius:10px;overflow:hidden}
     .thumb img{width:100%;display:block}
     .thumb button{position:absolute;top:4px;right:4px;background:#1f2937;color:#fff;border:0;border-radius:8px;padding:4px 6px;cursor:pointer}
+
+    /* ====== Overlay 4:3 + rejilla ====== */
+    .videoWrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid #223;background:black}
+    .videoWrap[data-ar="4:3"]{aspect-ratio:4/3;}         /* reserva caja 4:3 */
+    .videoWrap video{width:100%;height:100%;object-fit:cover;display:block}
+    .overlay{
+      position:absolute; inset:0; pointer-events:none; border-radius:16px;
+      /* marco exterior sutil */
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.15);
+      /* rejilla de tercios (2 líneas verticales + 2 horizontales) */
+      background:
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 33.333% 0 / 1px 100% no-repeat,
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 66.666% 0 / 1px 100% no-repeat,
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 0 33.333% / 100% 1px no-repeat,
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 0 66.666% / 100% 1px no-repeat;
+      /* pequeña viñeta para ayudar foco central */
+      outline: 800px solid rgba(0,0,0,.0);
+    }
+
+    /* ====== Controles de zoom ====== */
+    .zoomBar{display:flex;align-items:center;gap:10px;margin-top:8px}
+    .zoomBar input[type="range"]{width:100%}
+    .zoomBar .tag{font-size:12px;color:#a3bffa}
+    .build{font-size:12px;color:#60a5fa;margin-bottom:8px}
     .diag{margin-top:14px;background:#0a1222;border:1px dashed #2a365a;border-radius:12px;padding:12px}
     .diag h3{margin:0 0 8px 0;font-size:14px;color:#a3bffa}
     .diag pre{white-space:pre-wrap;word-wrap:break-word;background:#0a1329;border:1px solid #1d2847;border-radius:8px;padding:10px;max-height:220px;overflow:auto}
-    .build{font-size:12px;color:#60a5fa;margin-bottom:8px}
   </style>
 </head>
 <body>
 <div class="wrap"><div class="card">
-  <div class="build">v2-diag – build 2026-01-19</div>
+  <div class="build">v2-diag — overlay 4:3 + zoom</div>
   <h1>Captura de Góndolas</h1>
 
   <label>Usuario</label>
@@ -45,7 +66,18 @@
     <button id="btnAddPhoto" class="secondary" disabled>Agregar foto</button>
   </div>
 
-  <div class="videoBox"><video id="camera" autoplay playsinline muted></video><canvas id="snapshot" style="display:none"></canvas></div>
+  <!-- Video + Overlay 4:3 -->
+  <div class="videoWrap" data-ar="4:3">
+    <video id="camera" autoplay playsinline muted></video>
+    <div class="overlay"></div>
+  </div>
+
+  <!-- Barra de zoom -->
+  <div class="zoomBar" id="zoomBar" hidden>
+    <span class="tag">Zoom</span>
+    <input type="range" id="zoom" min="1" max="1" step="0.1" value="1" />
+    <span id="zoomVal" class="tag">1.0×</span>
+  </div>
 
   <div class="row" style="margin-top:10px">
     <button id="btnRetake" class="secondary" disabled>Repetir</button>
@@ -59,7 +91,7 @@
 
   <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes | Lotes en envío: 0</span></div>
 
-  <!-- ========== PANEL DE DIAGNÓSTICO ========== -->
+  <!-- Diagnóstico -->
   <div class="diag">
     <h3>Diagnóstico</h3>
     <div class="row">
@@ -71,13 +103,13 @@
 </div></div>
 
 <script>
-/* =================== Config =================== */
+/* ========== Config ==========\ */
 const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc";
 const MAX_DIM = 1600, JPEG_QUALITY = 0.82;
 const BATCH_MAX_IMAGES = 5;
 const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000;
 
-/* =================== Estado/UI =================== */
+/* ========== Estado/UI ==========\ */
 const $user = document.getElementById('user');
 const $pass = document.getElementById('pass');
 const $room = document.getElementById('room');
@@ -92,6 +124,9 @@ const $btnShowOutbox = document.getElementById('btnShowOutbox');
 const $btnForceUpdate = document.getElementById('btnForceUpdate');
 const $video = document.getElementById('camera');
 const $canvas = document.getElementById('snapshot');
+const $zoomBar = document.getElementById('zoomBar');
+const $zoom = document.getElementById('zoom');
+const $zoomVal = document.getElementById('zoomVal');
 const $msg = document.getElementById('msg');
 const $gallery = document.getElementById('gallery');
 const $queueMsg = document.getElementById('queueMsg');
@@ -103,11 +138,13 @@ function log(...args){ const s = args.map(a=> typeof a==='string'? a : JSON.stri
 function normalizeRoom(v){ return (v || "").toUpperCase().trim().replace(/\s+/g,''); }
 function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
 
-/* =================== Cámara (robusta) =================== */
+/* ========== Cámara (robusta) + ZOOM ==========\ */
 async function startCamera(){
   if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
     status('Complete usuario/clave y sala válida', false); return;
   }
+  try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+
   const explain = (err) => {
     if (!err || !err.name) return `Error desconocido al iniciar cámara`;
     switch (err.name) {
@@ -119,24 +156,56 @@ async function startCamera(){
       default: return `${err.name}: ${err.message||''}`.trim();
     }
   };
-  try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+
   const trials = [
     { video: { facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false },
     { video: { facingMode:{ideal:'environment'} }, audio:false },
     { video: true, audio:false }
   ];
+
   let lastErr=null;
-  for (const c of trials){
+  for(const c of trials){
     try{
       status('Iniciando cámara…');
       stream = await navigator.mediaDevices.getUserMedia(c);
       $video.srcObject = stream; try{ await $video.play(); }catch{}
       await new Promise(res=>{ const tid=setTimeout(res,1200); $video.onloadedmetadata=()=>{clearTimeout(tid);res();}; });
-      if ($video.videoWidth && $video.videoHeight){ $btnCapture.disabled=false; status('Cámara lista'); return; }
-      else throw new Error('Video sin dimensiones');
+      if (!$video.videoWidth || !$video.videoHeight) throw new Error('Video sin dimensiones');
+      $btnCapture.disabled=false; status('Cámara lista');
+
+      // === ZOOM ===
+      setupZoomUI(stream);
+      return;
     }catch(e){ lastErr=e; status(explain(e), false); }
   }
   status(`No se pudo acceder a la cámara. ${explain(lastErr)}`, false);
+}
+
+function setupZoomUI(stream){
+  const track = stream.getVideoTracks()[0];
+  const caps = track.getCapabilities?.() || {};
+  const settings = track.getSettings?.() || {};
+
+  if ('zoom' in caps && (typeof caps.zoom.min === 'number')) {
+    // Mostrar barra
+    $zoomBar.hidden = false;
+    const min = caps.zoom.min ?? 1;
+    const max = caps.zoom.max ?? 1;
+    const step = caps.zoom.step || 0.1;
+    const cur  = settings.zoom ?? min;
+    $zoom.min = min; $zoom.max = max; $zoom.step = step; $zoom.value = cur;
+    $zoomVal.textContent = `${Number(cur).toFixed(1)}×`;
+
+    $zoom.oninput = async () => {
+      const z = Number($zoom.value);
+      $zoomVal.textContent = `${z.toFixed(1)}×`;
+      try { await track.applyConstraints({ advanced: [{ zoom: z }] }); }
+      catch(e){ log('Zoom error:', e.message); }
+    };
+  } else {
+    // No soporta zoom → ocultar barra
+    $zoomBar.hidden = true;
+  }
 }
 
 function capture(){
@@ -153,7 +222,7 @@ function capture(){
   status('Foto capturada. Puedes agregarla al lote.');
 }
 
-/* =================== IndexedDB (cola offline) =================== */
+/* ========== IndexedDB ==========\ */
 let db;
 function openDB(){
   return new Promise((resolve,reject)=>{
@@ -174,7 +243,7 @@ function del(store, key){ return new Promise((res,rej)=>{const r=tx(store,'readw
 function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);}); }
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 
-/* =================== Galería =================== */
+/* ========== Galería ==========\ */
 async function refreshGallery(){
   const items = await getAll('captures');
   $gallery.innerHTML = '';
@@ -199,14 +268,12 @@ async function updateQueueState(){
   $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
 }
 
-/* =================== Flujo de agregar y enviar =================== */
+/* ========== Lógica de lotes ==========\ */
 async function addCurrentPhotoToQueue(){
   if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
   const image = {
-    image_id: uuid(),
-    room_code: normalizeRoom($room.value),
-    user: $user.value.trim(),
-    client_time: new Date().toISOString(),
+    image_id: uuid(), room_code: normalizeRoom($room.value),
+    user: $user.value.trim(), client_time: new Date().toISOString(),
     device: { ua:navigator.userAgent, platform:navigator.platform, lang:navigator.language },
     image_base64: currentJpegB64
   };
@@ -240,6 +307,7 @@ async function buildAndStageBatches(){
   await refreshGallery(); await updateQueueState();
 }
 
+/* ========== Envío ==========\ */
 async function sendOutboxOnce(){
   const batches = await getAll('outbox');
   for(const b of batches){
@@ -282,17 +350,14 @@ async function sendOutboxWithRetry(){
   backoff = Math.min(backoff*2, RETRY_MAX_MS);
   setTimeout(sendOutboxWithRetry, backoff);
 }
-
 async function triggerBGSync(){
-  // disparo inmediato
-  sendOutboxWithRetry();
-  // respaldo con Background Sync
+  sendOutboxWithRetry(); // disparo inmediato
   if('serviceWorker' in navigator && 'SyncManager' in window){
     try { const reg = await navigator.serviceWorker.ready; await reg.sync.register('sync-outbox'); } catch {}
   }
 }
 
-/* =================== Diagnóstico y utilidades =================== */
+/* ========== Diagnóstico ==========\ */
 async function testAuth(){
   status('Probando credenciales…');
   try{
@@ -323,7 +388,7 @@ async function forceUpdate(){
   }catch(e){ log('forceUpdate error:', e.message); }
 }
 
-/* =================== Eventos UI =================== */
+/* ========== Eventos UI ==========\ */
 $btnStart.onclick = startCamera;
 $btnCapture.onclick = capture;
 $btnRetake.onclick = ()=>{ $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true; photoReady=false; currentJpegB64=null; status('Repita la captura.'); };
@@ -331,12 +396,9 @@ $btnAddPhoto.onclick = addCurrentPhotoToQueue;
 $btnSendBatch.onclick = async ()=>{ await buildAndStageBatches(); status('Enviando lote…'); await sendOutboxWithRetry(); triggerBGSync(); };
 $btnRetry.onclick = ()=>{ status('Forzando envío…'); sendOutboxWithRetry(); };
 $btnTestAuth.onclick = testAuth;
-$btnShowOutbox.onclick = showOutbox;
-$btnForceUpdate.onclick = forceUpdate;
 
-/* =================== Init =================== */
+/* ========== Init ==========\ */
 openDB().then(()=>{ refreshGallery(); updateQueueState(); log('Conectado:', navigator.onLine); });
-// Registro del Service Worker (scope dinámico)
 if('serviceWorker' in navigator){
   const base = location.pathname.endsWith('/') ? location.pathname : location.pathname.replace(/[^/]+$/, '');
   navigator.serviceWorker.register(`${base}sw.js`, { scope: base })
@@ -346,11 +408,5 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
-
-
-
-
-
 
 
