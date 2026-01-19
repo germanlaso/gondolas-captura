@@ -280,6 +280,42 @@ openDB().then(()=>{ refreshGallery(); updateQueueState(); });
       .catch(err => console.warn('SW register failed:', err));
   }
 
+// === EXPONER FUNCIONES Y ELEMENTOS AL ÁMBITO GLOBAL (para depurar) ===
+(function () {
+  // Si estas constantes existen en el script, expónlas como helpers globales
+  try {
+    window.sendOutboxOnce      = sendOutboxOnce;
+    window.sendOutboxWithRetry = sendOutboxWithRetry;
+    window.buildAndStageBatches= buildAndStageBatches;
+    window.triggerBGSync       = triggerBGSync;
+    window.getAll              = getAll;
+    window.put                 = put;
+    window.del                 = del;
+  } catch (e) {
+    console.warn('No se pudieron exponer algunas funciones:', e);
+  }
+
+  // Reenganchar listeners de botones por si el wiring anterior no corrió
+  document.addEventListener('DOMContentLoaded', () => {
+    const $btnSend = document.getElementById('btnSendBatch');
+    if ($btnSend) {
+      $btnSend.addEventListener('click', async () => {
+        try {
+          await buildAndStageBatches();
+          status('Enviando lote…');
+          await sendOutboxWithRetry();  // disparo inmediato
+          triggerBGSync();              // respaldo
+        } catch (e) {
+          console.error('Error en click Enviar lote:', e);
+          status(`Error enviando lote: ${e.message}`, false);
+        }
+      }, { once: false });
+    } else {
+      console.warn('#btnSendBatch no encontrado en DOM');
+    }
+  });
+})();
+
 </script>
 </body>
 </html>
