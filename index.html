@@ -193,7 +193,7 @@ async function sendOutboxOnce(){
     try{
       const res = await fetch(FLOW_UPLOAD_URL, {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
         body: JSON.stringify({
           user: $user.value.trim(),
           password: $pass.value.trim(),
@@ -227,16 +227,22 @@ async function sendOutboxWithRetry(){
 }
 
 /* =================== Background Sync & conectividad =================== */
+
 async function triggerBGSync(){
+  // 🔹 Disparo inmediato (no depende del BG Sync)
+  sendOutboxWithRetry();
+
+  // 🔹 Además, si hay BG Sync, lo registro como respaldo
   if('serviceWorker' in navigator && 'SyncManager' in window){
-    const reg = await navigator.serviceWorker.ready;
-    try { await reg.sync.register('sync-outbox'); }
-    catch { sendOutboxWithRetry(); }
-  }else{
-    // iOS Safari / navegadores sin BG Sync
-    sendOutboxWithRetry();
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.sync.register('sync-outbox');
+    } catch {
+      // si falla el registro, igual ya llamamos sendOutboxWithRetry()
+    }
   }
 }
+
 
 window.addEventListener('online', ()=>{ status('Conectado. Reanudando envíos…'); triggerBGSync(); });
 window.addEventListener('offline', ()=>{ status('Sin conexión. Guardando en cola…', false); });
@@ -250,11 +256,13 @@ $btnRetake.onclick = ()=>{
   photoReady=false; currentJpegB64=null; status('Repita la captura.');
 };
 $btnAddPhoto.onclick = addCurrentPhotoToQueue;
-$btnSendBatch.onclick = async ()=>{
-  await buildAndStageBatches();
-  await triggerBGSync();
-  status('Lote en cola de envío. Se subirá cuando haya señal.');
+
+await buildAndStageBatches();
+  status('Enviando lote…');           // feedback inmediato
+  await sendOutboxWithRetry();        // 🔹 ENVÍO INMEDIATO
+  triggerBGSync();                    // 🔹 respaldo por si falla (o el tab se suspende)
 };
+
 
 /* =================== Init =================== */
 openDB().then(()=>{ refreshGallery(); updateQueueState(); });
