@@ -7,106 +7,265 @@
   <title>Captura de Góndolas</title>
   <style>
     body{margin:0;background:#0f172a;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto}
-    .wrap{max-width:520px;margin:0 auto;padding:16px}
+    .wrap{max-width:720px;margin:0 auto;padding:16px}
     .card{background:#0b1220;border:1px solid #202a44;border-radius:16px;padding:16px}
     label{display:block;font-size:14px;color:#94a3b8;margin:8px 0 6px}
     input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #29324c;background:#0e1629;color:#e5e7eb;font-size:16px}
-    button{border:0;background:#2563eb;color:white;border-radius:12px;padding:12px 14px;font-size:16px;font-weight:600;cursor:pointer}
+    button{border:0;background:#2563eb;color:white;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600;cursor:pointer}
     button.secondary{background:#334155}
-    .videoBox{border-radius:16px;overflow:hidden;background:black;margin-top:12px;border:1px solid #223}
-    video{width:100%;height:auto;display:block}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
     .status{margin-top:12px;font-size:14px;color:#94a3b8}
     #gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
     .thumb{position:relative;border:1px solid #223;border-radius:10px;overflow:hidden}
     .thumb img{width:100%;display:block}
     .thumb button{position:absolute;top:4px;right:4px;background:#1f2937;color:#fff;border:0;border-radius:8px;padding:4px 6px;cursor:pointer}
+
+    /* ===== Overlay 4:3 + rejilla ===== */
+    .videoWrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid #223;background:black}
+    .videoWrap[data-ar="4:3"]{aspect-ratio:4/3;}
+    .videoWrap video{width:100%;height:100%;object-fit:cover;display:block}
+    .overlay{
+      position:absolute; inset:0; pointer-events:none; border-radius:16px;
+      box-shadow: inset 0 0 0 2px rgba(255,255,255,.15);
+      background:
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 33.333% 0 / 1px 100% no-repeat,
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 66.666% 0 / 1px 100% no-repeat,
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 0 33.333% / 100% 1px no-repeat,
+        linear-gradient(rgba(255,255,255,.18), rgba(255,255,255,.18)) 0 66.666% / 100% 1px no-repeat;
+      outline: 800px solid rgba(0,0,0,.0);
+    }
+
+    /* ===== Controles de zoom ===== */
+    .zoomBar{display:flex;align-items:center;gap:10px;margin-top:8px}
+    .zoomBar input[type="range"]{width:100%}
+    .zoomBar .tag{font-size:12px;color:#a3bffa}
+
+    .build{font-size:12px;color:#60a5fa;margin-bottom:8px}
+    .diag{margin-top:14px;background:#0a1222;border:1px dashed #2a365a;border-radius:12px;padding:12px}
+    .diag h3{margin:0 0 8px 0;font-size:14px;color:#a3bffa}
+    .diag pre{white-space:pre-wrap;word-wrap:break-word;background:#0a1329;border:1px solid #1d2847;border-radius:8px;padding:10px;max-height:220px;overflow:auto}
   </style>
 </head>
 <body>
 <div class="wrap"><div class="card">
+  <div class="build">v2-diag — overlay 4:3 + zoom — captura robusta</div>
   <h1>Captura de Góndolas</h1>
 
   <label>Usuario</label>
   <input id="user" autocomplete="username" />
-
   <label>Contraseña</label>
   <input id="pass" type="password" autocomplete="current-password" />
-
   <label>N° de sala</label>
   <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
 
-  <div style="display:flex;gap:10px;margin-top:8px">
-    <button id="btnStart">Iniciar cámara</button>
-    <button id="btnCapture" class="secondary" disabled>Capturar</button>
+  <div class="row" style="margin-top:8px">
+    <button id="btnStart" onclick="startCamera()">Iniciar cámara</button>
+    <button id="btnCapture" class="secondary" disabled onclick="capture()">Capturar</button>
+    <button id="btnAddPhoto" class="secondary" disabled onclick="addCurrentPhotoToQueue()">Agregar foto</button>
   </div>
 
-  <div class="videoBox"><video id="camera" autoplay playsinline muted></video><canvas id="snapshot" style="display:none"></canvas></div>
+  <!-- Video + Overlay 4:3 + canvas oculto para capturas -->
+  <div class="videoWrap" data-ar="4:3">
+    <video id="camera" autoplay playsinline muted></video>
+    <canvas id="snapshot" style="display:none"></canvas>
+    <div class="overlay"></div>
+  </div>
 
-  <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
-    <button id="btnRetake" class="secondary" disabled>Repetir</button>
-    <button id="btnAddPhoto" class="secondary" disabled>Agregar foto</button>
-    <button id="btnSendBatch" disabled>Enviar lote</button>
+  <!-- Barra de zoom -->
+  <div class="zoomBar" id="zoomBar" hidden>
+    <span class="tag">Zoom</span>
+    <input type="range" id="zoom" min="1" max="1" step="0.1" value="1" />
+    <span id="zoomVal" class="tag">1.0×</span>
+  </div>
+
+  <div class="row" style="margin-top:10px">
+    <button id="btnRetake" class="secondary" disabled onclick="retake()">Repetir</button>
+    <button id="btnSendBatch" onclick="(async()=>{await buildAndStageBatches();status('Enviando lote…');await sendOutboxWithRetry();triggerBGSync();})()">Enviar lote</button>
+    <button id="btnRetry" class="secondary" onclick="sendOutboxWithRetry()">Reintentar ahora</button>
+    <button id="btnTestAuth" class="secondary" onclick="testAuth()">Probar credenciales</button>
   </div>
 
   <!-- Galería de fotos pendientes -->
   <div id="gallery"></div>
 
-  <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes</span></div>
+  <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes | Lotes en envío: 0</span></div>
+
+  <!-- Diagnóstico -->
+  <div class="diag">
+    <h3>Diagnóstico</h3>
+    <div class="row">
+      <button class="secondary" onclick="showOutbox()">Ver outbox</button>
+      <button class="secondary" onclick="forceUpdate()">Forzar actualización (limpiar SW/Cache)</button>
+    </div>
+    <pre id="log"></pre>
+  </div>
 </div></div>
 
 <script>
-/* =================== Config =================== */
-const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc"; // Pega aquí la URL del trigger HTTP
+/* ========== Config ========== */
+const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc";
 const MAX_DIM = 1600, JPEG_QUALITY = 0.82;
-const BATCH_MAX_IMAGES = 5;           // tamaño de sub-lotes
+const BATCH_MAX_IMAGES = 5;
 const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000;
 
-/* =================== Estado/UI =================== */
+/* ========== Estado/UI ========== */
 const $user = document.getElementById('user');
 const $pass = document.getElementById('pass');
 const $room = document.getElementById('room');
-const $btnStart = document.getElementById('btnStart');
+const $video = document.getElementById('camera');
+const $canvas = document.getElementById('snapshot');
+const $zoomBar = document.getElementById('zoomBar');
+const $zoom = document.getElementById('zoom');
+const $zoomVal = document.getElementById('zoomVal');
 const $btnCapture = document.getElementById('btnCapture');
 const $btnRetake = document.getElementById('btnRetake');
 const $btnAddPhoto = document.getElementById('btnAddPhoto');
 const $btnSendBatch = document.getElementById('btnSendBatch');
-const $video = document.getElementById('camera');
-const $canvas = document.getElementById('snapshot');
-const $msg = document.getElementById('msg');
 const $gallery = document.getElementById('gallery');
 const $queueMsg = document.getElementById('queueMsg');
-
+const $msg = document.getElementById('msg');
+const $log = document.getElementById('log');
 let stream=null, photoReady=false, currentJpegB64=null;
 
-function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
-function normalizeRoom(v){ return (v||"").toUpperCase().trim().replace(/\s+/g,''); }
+function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; log(t); }
+function log(...args){ const s = args.map(a=> typeof a==='string'? a : JSON.stringify(a)).join(' '); $log.textContent += (s+'\n'); $log.scrollTop = $log.scrollHeight; }
+function normalizeRoom(v){ return (v || "").toUpperCase().trim().replace(/\s+/g,''); }
 function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
 
-/* =================== Cámara =================== */
+/* ========== Cámara + ZOOM ========== */
 async function startCamera(){
   if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
     status('Complete usuario/clave y sala válida', false); return;
   }
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
-    $video.srcObject = stream; $btnCapture.disabled=false; status('Cámara lista');
-  }catch(e){ status('No se pudo acceder a la cámara',false); }
-}
-function capture(){
-  const vw=$video.videoWidth, vh=$video.videoHeight;
-  if(!vw || !vh){ status('Cámara no lista',false); return;}
-  const long=Math.max(vw,vh), scale = long>MAX_DIM? MAX_DIM/long:1;
-  const tw=Math.round(vw*scale), th=Math.round(vh*scale);
-  $canvas.width=tw; $canvas.height=th;
-  const ctx=$canvas.getContext('2d',{alpha:false});
-  ctx.drawImage($video,0,0,tw,th);
-  photoReady=true;
-  currentJpegB64 = $canvas.toDataURL('image/jpeg', JPEG_QUALITY).split(',')[1]; // solo base64
-  $btnAddPhoto.disabled=false; $btnRetake.disabled=false; $btnCapture.disabled=true;
-  status('Foto capturada. Puedes agregarla al lote.');
+  try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+
+  const explain = (err) => {
+    if (!err || !err.name) return `Error desconocido al iniciar cámara`;
+    switch (err.name) {
+      case 'NotAllowedError':
+      case 'SecurityError': return 'Acceso a la cámara bloqueado. Habilítalo en el candado del navegador y recarga.';
+      case 'NotFoundError': return 'No se encontró ninguna cámara.';
+      case 'NotReadableError': return 'La cámara está en uso por otra aplicación.';
+      case 'OverconstrainedError': return 'La cámara no soporta estas restricciones. Probando alternativas…';
+      default: return `${err.name}: ${err.message||''}`.trim();
+    }
+  };
+
+  const trials = [
+    { video: { facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false },
+    { video: { facingMode:{ideal:'environment'} }, audio:false },
+    { video: true, audio:false }
+  ];
+
+  let lastErr=null;
+  for(const c of trials){
+    try{
+      status('Iniciando cámara…');
+      stream = await navigator.mediaDevices.getUserMedia(c);
+      $video.srcObject = stream; try{ await $video.play(); }catch{}
+      await new Promise(res=>{ const tid=setTimeout(res,1200); $video.onloadedmetadata=()=>{clearTimeout(tid);res();}; });
+      if (!$video.videoWidth || !$video.videoHeight) throw new Error('Video sin dimensiones');
+      $btnCapture.disabled=false; status('Cámara lista');
+      setupZoomUI(stream);
+      return;
+    }catch(e){ lastErr=e; status(explain(e), false); }
+  }
+  status(`No se pudo acceder a la cámara. ${explain(lastErr)}`, false);
 }
 
-/* =================== IndexedDB (cola offline) =================== */
+function setupZoomUI(stream){
+  const track = stream.getVideoTracks()[0];
+  const caps = track.getCapabilities?.() || {};
+  const settings = track.getSettings?.() || {};
+
+  if ('zoom' in caps && (typeof caps.zoom.min === 'number')) {
+    $zoomBar.hidden = false;
+    const min = caps.zoom.min ?? 1;
+    const max = caps.zoom.max ?? 1;
+    const step = caps.zoom.step || 0.1;
+    const cur  = settings.zoom ?? min;
+    $zoom.min = min; $zoom.max = max; $zoom.step = step; $zoom.value = cur;
+    $zoomVal.textContent = `${Number(cur).toFixed(1)}×`;
+
+    $zoom.oninput = async () => {
+      const z = Number($zoom.value);
+      $zoomVal.textContent = `${z.toFixed(1)}×`;
+      try { await track.applyConstraints({ advanced: [{ zoom: z }] }); }
+      catch(e){ log('Zoom error:', e.message); }
+    };
+  } else {
+    $zoomBar.hidden = true; // no soporta zoom
+  }
+}
+
+async function waitForVideoDims(maxTries=15, delayMs=120){
+  for (let i=0; i<maxTries; i++){
+    if ($video && $video.videoWidth && $video.videoHeight) return true;
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+  return !!($video && $video.videoWidth && $video.videoHeight);
+}
+
+function getOrCreateCanvas(){
+  let cv = document.getElementById('snapshot');
+  if (cv && cv.getContext) return cv;
+  cv = document.createElement('canvas');
+  cv.id = 'snapshot';
+  cv.style.display = 'none';
+  (document.querySelector('.videoWrap') || document.body).appendChild(cv);
+  return cv;
+}
+
+async function capture(){
+  try{
+    status('Capturando…');
+
+    const okDims = await waitForVideoDims(15, 120);
+    const vw = $video?.videoWidth, vh = $video?.videoHeight;
+    if (!okDims || !vw || !vh){
+      status('Cámara aún sin dimensiones válidas. Intenta nuevamente.', false);
+      return;
+    }
+
+    const long = Math.max(vw, vh), scale = long > MAX_DIM ? MAX_DIM / long : 1;
+    const tw = Math.round(vw * scale), th = Math.round(vh * scale);
+
+    const canvas = getOrCreateCanvas();
+    canvas.width = tw; canvas.height = th;
+    const ctx = canvas.getContext('2d', { alpha:false });
+
+    await new Promise(r => requestAnimationFrame(r));
+    ctx.drawImage($video, 0, 0, tw, th);
+
+    let dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+    if (!dataUrl || dataUrl.length < 50){
+      await new Promise(r => setTimeout(r, 120));
+      ctx.drawImage($video, 0, 0, tw, th);
+      dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
+      if (!dataUrl || dataUrl.length < 50){
+        status('No se pudo capturar la imagen. Repite la captura.', false);
+        return;
+      }
+    }
+
+    currentJpegB64 = dataUrl.split(',')[1];
+    photoReady = true;
+    $btnAddPhoto.disabled = false;
+    $btnRetake.disabled = false;
+    $btnCapture.disabled = true;
+    status(`Foto capturada (${tw}×${th}). Puedes agregarla al lote.`);
+  } catch(e){
+    console.error('capture error', e);
+    status(`Error capturando: ${e.message}`, false);
+  }
+}
+
+function retake(){
+  $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true;
+  photoReady=false; currentJpegB64=null; status('Repita la captura.');
+}
+
+/* ========== IndexedDB ========== */
 let db;
 function openDB(){
   return new Promise((resolve,reject)=>{
@@ -127,14 +286,14 @@ function del(store, key){ return new Promise((res,rej)=>{const r=tx(store,'readw
 function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);}); }
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 
-/* =================== Galería =================== */
+/* ========== Galería ========== */
 async function refreshGallery(){
   const items = await getAll('captures');
   $gallery.innerHTML = '';
-  items.forEach(it=>{
-    const d=document.createElement('div'); d.className='thumb';
+  for (const it of items){
+    const d = document.createElement('div'); d.className='thumb';
     d.innerHTML = `
-      <img alt="foto" src="data:image/jpeg;base64,${it.image_base64}">
+      <img alt="foto" src="data:image/jpeg;base64,${it.image_base64}" />
       <button title="Quitar" data-id="${it.image_id}">✕</button>
     `;
     d.querySelector('button').onclick = async (e)=>{
@@ -143,7 +302,7 @@ async function refreshGallery(){
       await updateQueueState();
     };
     $gallery.appendChild(d);
-  });
+  }
   $btnSendBatch.disabled = items.length===0;
 }
 async function updateQueueState(){
@@ -152,7 +311,7 @@ async function updateQueueState(){
   $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
 }
 
-/* =================== Flujo de agregar y enviar =================== */
+/* ========== Flujo de agregar y enviar ========== */
 async function addCurrentPhotoToQueue(){
   if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
   const image = {
@@ -163,27 +322,37 @@ async function addCurrentPhotoToQueue(){
     device: { ua:navigator.userAgent, platform:navigator.platform, lang:navigator.language },
     image_base64: currentJpegB64
   };
-  await put('captures', image);
-  // reset estado de captura
-  photoReady=false; currentJpegB64=null; $btnAddPhoto.disabled=true; $btnCapture.disabled=false; $btnRetake.disabled=true;
-  await refreshGallery(); await updateQueueState();
-  status('Foto agregada a la cola.');
+  try{
+    await put('captures', image);
+    photoReady=false; currentJpegB64=null; $btnAddPhoto.disabled=true; $btnCapture.disabled=false; $btnRetake.disabled=true;
+    await refreshGallery(); await updateQueueState();
+    status('Foto agregada a la cola.');
+  }catch(e){
+    console.error('put captures error', e);
+    status('No se pudo guardar en la cola (IndexedDB).', false);
+  }
 }
 
 async function buildAndStageBatches(){
   const items = await getAll('captures');
   if(items.length===0) return;
-  for(let i=0; i<items.length; i+=BATCH_MAX_IMAGES){
-    const chunk = items.slice(i, i+BATCH_MAX_IMAGES);
-    const batch = {
-      batch_id: uuid(),
-      room_code: normalizeRoom($room.value),
-      user: $user.value.trim(),
-      created_at: new Date().toISOString(),
-      images: chunk.map(({image_id, image_base64, client_time, device})=>({ image_id, image_base64, client_time, device }))
-    };
-    await put('outbox', batch);
-    for(const it of chunk){ await del('captures', it.image_id); }
+  const groups = new Map();
+  for (const it of items) {
+    const key = `${it.user}::${it.room_code}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
+  for (const [key, arr] of groups) {
+    const [user, room_code] = key.split('::');
+    for (let i=0; i<arr.length; i+=BATCH_MAX_IMAGES) {
+      const chunk = arr.slice(i, i+BATCH_MAX_IMAGES);
+      const batch = {
+        batch_id: uuid(), room_code, user, created_at: new Date().toISOString(),
+        images: chunk.map(({ image_id, image_base64, client_time, device }) => ({ image_id, image_base64, client_time, device }))
+      };
+      await put('outbox', batch);
+      for (const it of chunk) await del('captures', it.image_id);
+    }
   }
   await refreshGallery(); await updateQueueState();
 }
@@ -194,30 +363,34 @@ async function sendOutboxOnce(){
     try{
       const res = await fetch(FLOW_UPLOAD_URL, {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{ 'Content-Type':'text/plain; charset=utf-8' },
         body: JSON.stringify({
           user: $user.value.trim(),
           password: $pass.value.trim(),
           room_code: b.room_code,
           batch_id: b.batch_id,
-          images: b.images  // cada image tiene image_id y base64 sin prefijo
+          images: b.images
         })
       });
-      const data = await res.json().catch(()=>({ok:res.ok}));
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch { data = { ok: res.ok, raw: text }; }
       if(res.ok && data.ok){
-        // marcar imágenes como procesadas (idempotencia cliente)
-        for(const img of b.images){ await put('processed',{image_id: img.image_id, ts: Date.now()}); }
+        const okIds = new Set((data.results || []).filter(r=>r.ok).map(r=>r.image_id));
+        for (const img of b.images) if (okIds.has(img.image_id)) await put('processed',{image_id: img.image_id, ts: Date.now()});
         await del('outbox', b.batch_id);
+        status(`Lote ${b.batch_id} enviado (${(data.results||[]).length} fotos).`);
       }else{
-        throw new Error('HTTP batch error');
+        console.error('Upload error', res.status, data);
+        status(`Error HTTP ${res.status}`, false);
+        throw new Error(`HTTP ${res.status}`);
       }
     }catch(e){
-      // mantener el batch en outbox para reintento
+      console.warn('Reintento por error:', e.message);
+      status(`Error enviando ${b.batch_id}. Reintento en ${Math.round(backoff/1000)}s…`, false);
     }
   }
   await updateQueueState();
 }
-
 let backoff = RETRY_BASE_MS;
 async function sendOutboxWithRetry(){
   await sendOutboxOnce();
@@ -226,47 +399,54 @@ async function sendOutboxWithRetry(){
   backoff = Math.min(backoff*2, RETRY_MAX_MS);
   setTimeout(sendOutboxWithRetry, backoff);
 }
-
-/* =================== Background Sync & conectividad =================== */
 async function triggerBGSync(){
+  sendOutboxWithRetry();
   if('serviceWorker' in navigator && 'SyncManager' in window){
-    const reg = await navigator.serviceWorker.ready;
-    try { await reg.sync.register('sync-outbox'); }
-    catch { sendOutboxWithRetry(); }
-  }else{
-    // iOS Safari / navegadores sin BG Sync
-    sendOutboxWithRetry();
+    try { const reg = await navigator.serviceWorker.ready; await reg.sync.register('sync-outbox'); } catch {}
   }
 }
 
-window.addEventListener('online', ()=>{ status('Conectado. Reanudando envíos…'); triggerBGSync(); });
-window.addEventListener('offline', ()=>{ status('Sin conexión. Guardando en cola…', false); });
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') triggerBGSync(); });
+/* ========== Diagnóstico ========== */
+async function testAuth(){
+  status('Probando credenciales…');
+  try{
+    const res = await fetch(FLOW_UPLOAD_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain; charset=utf-8'},
+      body: JSON.stringify({ user:$user.value.trim(), password:$pass.value.trim(), room_code: normalizeRoom($room.value), images: [] })
+    });
+    const txt = await res.text();
+    log('Auth → HTTP', res.status, txt);
+    if (res.status===200) status('Credenciales OK');
+    else if(res.status===401) status('Credenciales incorrectas', false);
+    else status(`Auth respondió HTTP ${res.status}`, false);
+  }catch(e){ log('Auth error:', e.message); status('Error de red en auth', false); }
+}
+async function showOutbox(){ const out = await getAll('outbox'); log('Outbox:', out.length, out); }
+async function forceUpdate(){
+  try{
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      for (const k of keys) if (k.startsWith('gondolas-')) await caches.delete(k);
+    }
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) await r.unregister();
+    }
+    location.reload();
+  }catch(e){ log('forceUpdate error:', e.message); }
+}
 
-/* =================== Eventos UI =================== */
-$btnStart.onclick = startCamera;
-$btnCapture.onclick = capture;
-$btnRetake.onclick = ()=>{
-  $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true;
-  photoReady=false; currentJpegB64=null; status('Repita la captura.');
-};
-$btnAddPhoto.onclick = addCurrentPhotoToQueue;
-$btnSendBatch.onclick = async ()=>{
-  await buildAndStageBatches();
-  await triggerBGSync();
-  status('Lote en cola de envío. Se subirá cuando haya señal.');
-};
-
-/* =================== Init =================== */
-openDB().then(()=>{ refreshGallery(); updateQueueState(); });
-
-// Registro del Service Worker
+/* ========== Init ========== */
+openDB().then(()=>{ refreshGallery(); updateQueueState(); log('Conectado:', navigator.onLine); });
 if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('./sw.js').catch(()=>{ /* sin SW igual funciona */ });
+  const base = location.pathname.endsWith('/') ? location.pathname : location.pathname.replace(/[^/]+$/, '');
+  navigator.serviceWorker.register(`${base}sw.js`, { scope: base })
+    .then(reg => log('SW scope:', reg.scope))
+    .catch(()=>{});
 }
 </script>
 </body>
 </html>
-
 
 
