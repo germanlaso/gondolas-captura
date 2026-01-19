@@ -7,58 +7,74 @@
   <title>Captura de Góndolas</title>
   <style>
     body{margin:0;background:#0f172a;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto}
-    .wrap{max-width:520px;margin:0 auto;padding:16px}
+    .wrap{max-width:720px;margin:0 auto;padding:16px}
     .card{background:#0b1220;border:1px solid #202a44;border-radius:16px;padding:16px}
     label{display:block;font-size:14px;color:#94a3b8;margin:8px 0 6px}
     input{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #29324c;background:#0e1629;color:#e5e7eb;font-size:16px}
-    button{border:0;background:#2563eb;color:white;border-radius:12px;padding:12px 14px;font-size:16px;font-weight:600;cursor:pointer}
+    button{border:0;background:#2563eb;color:white;border-radius:12px;padding:10px 12px;font-size:14px;font-weight:600;cursor:pointer}
     button.secondary{background:#334155}
-    .videoBox{border-radius:16px;overflow:hidden;background:black;margin-top:12px;border:1px solid #223}
+    .row{display:flex;gap:10px;flex-wrap:wrap}
+    .videoBox{border-radius:16px;overflow:hidden;background:black;margin-top:12px;border:1px solid #223;min-height:200px}
     video{width:100%;height:auto;display:block}
     .status{margin-top:12px;font-size:14px;color:#94a3b8}
     #gallery{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
     .thumb{position:relative;border:1px solid #223;border-radius:10px;overflow:hidden}
     .thumb img{width:100%;display:block}
     .thumb button{position:absolute;top:4px;right:4px;background:#1f2937;color:#fff;border:0;border-radius:8px;padding:4px 6px;cursor:pointer}
+    .diag{margin-top:14px;background:#0a1222;border:1px dashed #2a365a;border-radius:12px;padding:12px}
+    .diag h3{margin:0 0 8px 0;font-size:14px;color:#a3bffa}
+    .diag pre{white-space:pre-wrap;word-wrap:break-word;background:#0a1329;border:1px solid #1d2847;border-radius:8px;padding:10px;max-height:220px;overflow:auto}
+    .build{font-size:12px;color:#60a5fa;margin-bottom:8px}
   </style>
 </head>
 <body>
 <div class="wrap"><div class="card">
+  <div class="build">v2-diag – build 2026-01-19</div>
   <h1>Captura de Góndolas</h1>
 
   <label>Usuario</label>
   <input id="user" autocomplete="username" />
-
   <label>Contraseña</label>
   <input id="pass" type="password" autocomplete="current-password" />
-
   <label>N° de sala</label>
   <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
 
-  <div style="display:flex;gap:10px;margin-top:8px">
+  <div class="row" style="margin-top:8px">
     <button id="btnStart">Iniciar cámara</button>
     <button id="btnCapture" class="secondary" disabled>Capturar</button>
+    <button id="btnAddPhoto" class="secondary" disabled>Agregar foto</button>
   </div>
 
   <div class="videoBox"><video id="camera" autoplay playsinline muted></video><canvas id="snapshot" style="display:none"></canvas></div>
 
-  <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
+  <div class="row" style="margin-top:10px">
     <button id="btnRetake" class="secondary" disabled>Repetir</button>
-    <button id="btnAddPhoto" class="secondary" disabled>Agregar foto</button>
-    <button id="btnSendBatch" disabled>Enviar lote</button>
+    <button id="btnSendBatch">Enviar lote</button>
+    <button id="btnRetry" class="secondary">Reintentar ahora</button>
+    <button id="btnTestAuth" class="secondary">Probar credenciales</button>
   </div>
 
   <!-- Galería de fotos pendientes -->
   <div id="gallery"></div>
 
-  <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes</span></div>
+  <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes | Lotes en envío: 0</span></div>
+
+  <!-- ========== PANEL DE DIAGNÓSTICO ========== -->
+  <div class="diag">
+    <h3>Diagnóstico</h3>
+    <div class="row">
+      <button id="btnShowOutbox" class="secondary">Ver outbox</button>
+      <button id="btnForceUpdate" class="secondary">Forzar actualización (limpiar SW/Cache)</button>
+    </div>
+    <pre id="log"></pre>
+  </div>
 </div></div>
 
 <script>
 /* =================== Config =================== */
-const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc"; // Pega aquí la URL del trigger HTTP
+const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc";
 const MAX_DIM = 1600, JPEG_QUALITY = 0.82;
-const BATCH_MAX_IMAGES = 5;           // tamaño de sub-lotes
+const BATCH_MAX_IMAGES = 5;
 const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000;
 
 /* =================== Estado/UI =================== */
@@ -70,203 +86,33 @@ const $btnCapture = document.getElementById('btnCapture');
 const $btnRetake = document.getElementById('btnRetake');
 const $btnAddPhoto = document.getElementById('btnAddPhoto');
 const $btnSendBatch = document.getElementById('btnSendBatch');
+const $btnRetry = document.getElementById('btnRetry');
+const $btnTestAuth = document.getElementById('btnTestAuth');
+const $btnShowOutbox = document.getElementById('btnShowOutbox');
+const $btnForceUpdate = document.getElementById('btnForceUpdate');
 const $video = document.getElementById('camera');
 const $canvas = document.getElementById('snapshot');
 const $msg = document.getElementById('msg');
 const $gallery = document.getElementById('gallery');
 const $queueMsg = document.getElementById('queueMsg');
-
+const $log = document.getElementById('log');
 let stream=null, photoReady=false, currentJpegB64=null;
 
-function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
-function normalizeRoom(v){ return (v||"").toUpperCase().trim().replace(/\s+/g,''); }
+function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; log(t); }
+function log(...args){ const s = args.map(a=> typeof a==='string'? a : JSON.stringify(a)).join(' '); $log.textContent += (s+'\n'); $log.scrollTop = $log.scrollHeight; }
+function normalizeRoom(v){ return (v || "").toUpperCase().trim().replace(/\s+/g,''); }
 function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
 
-/* =================== Cámara =================== */
+/* =================== Cámara (robusta) =================== */
 async function startCamera(){
   if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
     status('Complete usuario/clave y sala válida', false); return;
   }
-  try{
-    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});
-    $video.srcObject = stream; $btnCapture.disabled=false; status('Cámara lista');
-  }catch(e){ status('No se pudo acceder a la cámara',false); }
-}
-function capture(){
-  const vw=$video.videoWidth, vh=$video.videoHeight;
-  if(!vw || !vh){ status('Cámara no lista',false); return;}
-  const long=Math.max(vw,vh), scale = long>MAX_DIM? MAX_DIM/long:1;
-  const tw=Math.round(vw*scale), th=Math.round(vh*scale);
-  $canvas.width=tw; $canvas.height=th;
-  const ctx=$canvas.getContext('2d',{alpha:false});
-  ctx.drawImage($video,0,0,tw,th);
-  photoReady=true;
-  currentJpegB64 = $canvas.toDataURL('image/jpeg', JPEG_QUALITY).split(',')[1]; // solo base64
-  $btnAddPhoto.disabled=false; $btnRetake.disabled=false; $btnCapture.disabled=true;
-  status('Foto capturada. Puedes agregarla al lote.');
-}
-
-/* =================== IndexedDB (cola offline) =================== */
-let db;
-function openDB(){
-  return new Promise((resolve,reject)=>{
-    const req = indexedDB.open('auditoria-gondolas-db', 1);
-    req.onupgradeneeded = (e)=>{
-      const db = e.target.result;
-      if(!db.objectStoreNames.contains('captures')) db.createObjectStore('captures',{keyPath:'image_id'});
-      if(!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox',{keyPath:'batch_id'});
-      if(!db.objectStoreNames.contains('processed')) db.createObjectStore('processed',{keyPath:'image_id'});
-    };
-    req.onsuccess = ()=>{db=req.result; resolve(db);};
-    req.onerror = ()=>reject(req.error);
-  });
-}
-function tx(store, mode='readonly'){ return db.transaction(store, mode).objectStore(store); }
-function put(store, val){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
-function del(store, key){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
-function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);}); }
-const uuid = () => crypto.randomUUID ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
-
-/* =================== Galería =================== */
-async function refreshGallery(){
-  const items = await getAll('captures');
-  $gallery.innerHTML = '';
-  items.forEach(it=>{
-    const d=document.createElement('div'); d.className='thumb';
-    d.innerHTML = `
-      <img alt="foto" src="data:image/jpeg;base64,${it.image_base64}">
-      <button title="Quitar" data-id="${it.image_id}">✕</button>
-    `;
-    d.querySelector('button').onclick = async (e)=>{
-      await del('captures', e.target.dataset.id);
-      await refreshGallery();
-      await updateQueueState();
-    };
-    $gallery.appendChild(d);
-  });
-  $btnSendBatch.disabled = items.length===0;
-}
-async function updateQueueState(){
-  const cap = await getAll('captures');
-  const out = await getAll('outbox');
-  $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
-}
-
-/* =================== Flujo de agregar y enviar =================== */
-async function addCurrentPhotoToQueue(){
-  if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
-  const image = {
-    image_id: uuid(),
-    room_code: normalizeRoom($room.value),
-    user: $user.value.trim(),
-    client_time: new Date().toISOString(),
-    device: { ua:navigator.userAgent, platform:navigator.platform, lang:navigator.language },
-    image_base64: currentJpegB64
-  };
-  await put('captures', image);
-  // reset estado de captura
-  photoReady=false; currentJpegB64=null; $btnAddPhoto.disabled=true; $btnCapture.disabled=false; $btnRetake.disabled=true;
-  await refreshGallery(); await updateQueueState();
-  status('Foto agregada a la cola.');
-}
-
-async function buildAndStageBatches(){
-  const items = await getAll('captures');
-  if(items.length===0) return;
-  for(let i=0; i<items.length; i+=BATCH_MAX_IMAGES){
-    const chunk = items.slice(i, i+BATCH_MAX_IMAGES);
-    const batch = {
-      batch_id: uuid(),
-      room_code: normalizeRoom($room.value),
-      user: $user.value.trim(),
-      created_at: new Date().toISOString(),
-      images: chunk.map(({image_id, image_base64, client_time, device})=>({ image_id, image_base64, client_time, device }))
-    };
-    await put('outbox', batch);
-    for(const it of chunk){ await del('captures', it.image_id); }
-  }
-  await refreshGallery(); await updateQueueState();
-}
-
-async function sendOutboxOnce(){
-  const batches = await getAll('outbox');
-  for(const b of batches){
-    try{
-      const res = await fetch(FLOW_UPLOAD_URL, {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({
-          user: $user.value.trim(),
-          password: $pass.value.trim(),
-          room_code: b.room_code,
-          batch_id: b.batch_id,
-          images: b.images  // cada image tiene image_id y base64 sin prefijo
-        })
-      });
-      const data = await res.json().catch(()=>({ok:res.ok}));
-      if(res.ok && data.ok){
-        // marcar imágenes como procesadas (idempotencia cliente)
-        for(const img of b.images){ await put('processed',{image_id: img.image_id, ts: Date.now()}); }
-        await del('outbox', b.batch_id);
-      }else{
-        throw new Error('HTTP batch error');
-      }
-    }catch(e){
-      // mantener el batch en outbox para reintento
-    }
-  }
-  await updateQueueState();
-}
-
-let backoff = RETRY_BASE_MS;
-async function sendOutboxWithRetry(){
-  await sendOutboxOnce();
-  const out = await getAll('outbox');
-  if(out.length===0){ backoff = RETRY_BASE_MS; return; }
-  backoff = Math.min(backoff*2, RETRY_MAX_MS);
-  setTimeout(sendOutboxWithRetry, backoff);
-}
-
-/* =================== Background Sync & conectividad =================== */
-async function triggerBGSync(){
-  if('serviceWorker' in navigator && 'SyncManager' in window){
-    const reg = await navigator.serviceWorker.ready;
-    try { await reg.sync.register('sync-outbox'); }
-    catch { sendOutboxWithRetry(); }
-  }else{
-    // iOS Safari / navegadores sin BG Sync
-    sendOutboxWithRetry();
-  }
-}
-
-window.addEventListener('online', ()=>{ status('Conectado. Reanudando envíos…'); triggerBGSync(); });
-window.addEventListener('offline', ()=>{ status('Sin conexión. Guardando en cola…', false); });
-document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') triggerBGSync(); });
-
-/* =================== Eventos UI =================== */
-$btnStart.onclick = startCamera;
-$btnCapture.onclick = capture;
-$btnRetake.onclick = ()=>{
-  $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true;
-  photoReady=false; currentJpegB64=null; status('Repita la captura.');
-};
-$btnAddPhoto.onclick = addCurrentPhotoToQueue;
-$btnSendBatch.onclick = async ()=>{
-  await buildAndStageBatches();
-  await triggerBGSync();
-  status('Lote en cola de envío. Se subirá cuando haya señal.');
-};
-
-/* =================== Init =================== */
-openDB().then(()=>{ refreshGallery(); updateQueueState(); });
-
-// Registro del Service Worker
-if('serviceWorker' in navigator){
-  navigator.serviceWorker.register('./sw.js').catch(()=>{ /* sin SW igual funciona */ });
-}
-</script>
-</body>
-</html>
+  const explain = (err) => {
+    if (!err || !err.name) return `Error desconocido al iniciar cámara`;
+    switch (err.name) {
+      case 'NotAllowedError':
+      case 'SecurityError': return 'Acceso a la cámara bloqueado. Habilítalo en el candado del navegador y recarga.';
 
 
 
