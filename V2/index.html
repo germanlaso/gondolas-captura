@@ -113,9 +113,239 @@ async function startCamera(){
     switch (err.name) {
       case 'NotAllowedError':
       case 'SecurityError': return 'Acceso a la cámara bloqueado. Habilítalo en el candado del navegador y recarga.';
+      case 'NotFoundError': return 'No se encontró ninguna cámara.';
+      case 'NotReadableError': return 'La cámara está en uso por otra aplicación.';
+      case 'OverconstrainedError': return 'La cámara no soporta estas restricciones. Probando alternativas…';
+      default: return `${err.name}: ${err.message||''}`.trim();
+    }
+  };
+  try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
+  const trials = [
+    { video: { facingMode:{ideal:'environment'}, width:{ideal:1920}, height:{ideal:1080} }, audio:false },
+    { video: { facingMode:{ideal:'environment'} }, audio:false },
+    { video: true, audio:false }
+  ];
+  let lastErr=null;
+  for (const c of trials){
+    try{
+      status('Iniciando cámara…');
+      stream = await navigator.mediaDevices.getUserMedia(c);
+      $video.srcObject = stream; try{ await $video.play(); }catch{}
+      await new Promise(res=>{ const tid=setTimeout(res,1200); $video.onloadedmetadata=()=>{clearTimeout(tid);res();}; });
+      if ($video.videoWidth && $video.videoHeight){ $btnCapture.disabled=false; status('Cámara lista'); return; }
+      else throw new Error('Video sin dimensiones');
+    }catch(e){ lastErr=e; status(explain(e), false); }
+  }
+  status(`No se pudo acceder a la cámara. ${explain(lastErr)}`, false);
+}
 
+function capture(){
+  const vw=$video.videoWidth, vh=$video.videoHeight;
+  if(!vw || !vh){ status('Cámara no lista',false); return;}
+  const long=Math.max(vw,vh), scale = long>MAX_DIM? MAX_DIM/long:1;
+  const tw=Math.round(vw*scale), th=Math.round(vh*scale);
+  $canvas.width=tw; $canvas.height=th;
+  const ctx=$canvas.getContext('2d',{alpha:false});
+  ctx.drawImage($video,0,0,tw,th);
+  photoReady=true;
+  currentJpegB64 = $canvas.toDataURL('image/jpeg', JPEG_QUALITY).split(',')[1];
+  $btnAddPhoto.disabled=false; $btnRetake.disabled=false; $btnCapture.disabled=true;
+  status('Foto capturada. Puedes agregarla al lote.');
+}
 
+/* =================== IndexedDB (cola offline) =================== */
+let db;
+function openDB(){
+  return new Promise((resolve,reject)=>{
+    const req = indexedDB.open('auditoria-gondolas-db', 1);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('captures')) db.createObjectStore('captures',{keyPath:'image_id'});
+      if(!db.objectStoreNames.contains('outbox')) db.createObjectStore('outbox',{keyPath:'batch_id'});
+      if(!db.objectStoreNames.contains('processed')) db.createObjectStore('processed',{keyPath:'image_id'});
+    };
+    req.onsuccess = ()=>{db=req.result; resolve(db);};
+    req.onerror = ()=>reject(req.error);
+  });
+}
+function tx(store, mode='readonly'){ return db.transaction(store, mode).objectStore(store); }
+function put(store, val){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').put(val); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
+function del(store, key){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
+function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);}); }
+const uuid = () => crypto.randomUUID ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
 
+/* =================== Galería =================== */
+async function refreshGallery(){
+  const items = await getAll('captures');
+  $gallery.innerHTML = '';
+  items.forEach(it=>{
+    const d=document.createElement('div'); d.className='thumb';
+    d.innerHTML = `
+      <img alt="foto" src="data:image/jpeg;base64,${it.image_base64}">
+      <button title="Quitar" data-id="${it.image_id}">✕</button>
+    `;
+    d.querySelector('button').onclick = async (e)=>{
+      await del('captures', e.target.dataset.id);
+      await refreshGallery();
+      await updateQueueState();
+    };
+    $gallery.appendChild(d);
+  });
+  $btnSendBatch.disabled = items.length===0;
+}
+async function updateQueueState(){
+  const cap = await getAll('captures');
+  const out = await getAll('outbox');
+  $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
+}
+
+/* =================== Flujo de agregar y enviar =================== */
+async function addCurrentPhotoToQueue(){
+  if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
+  const image = {
+    image_id: uuid(),
+    room_code: normalizeRoom($room.value),
+    user: $user.value.trim(),
+    client_time: new Date().toISOString(),
+    device: { ua:navigator.userAgent, platform:navigator.platform, lang:navigator.language },
+    image_base64: currentJpegB64
+  };
+  await put('captures', image);
+  photoReady=false; currentJpegB64=null; $btnAddPhoto.disabled=true; $btnCapture.disabled=false; $btnRetake.disabled=true;
+  await refreshGallery(); await updateQueueState();
+  status('Foto agregada a la cola.');
+}
+
+async function buildAndStageBatches(){
+  const items = await getAll('captures');
+  if(items.length===0) return;
+  const groups = new Map();
+  for (const it of items) {
+    const key = `${it.user}::${it.room_code}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(it);
+  }
+  for (const [key, arr] of groups) {
+    const [user, room_code] = key.split('::');
+    for (let i=0; i<arr.length; i+=BATCH_MAX_IMAGES) {
+      const chunk = arr.slice(i, i+BATCH_MAX_IMAGES);
+      const batch = {
+        batch_id: uuid(), room_code, user, created_at: new Date().toISOString(),
+        images: chunk.map(({ image_id, image_base64, client_time, device }) => ({ image_id, image_base64, client_time, device }))
+      };
+      await put('outbox', batch);
+      for (const it of chunk) await del('captures', it.image_id);
+    }
+  }
+  await refreshGallery(); await updateQueueState();
+}
+
+async function sendOutboxOnce(){
+  const batches = await getAll('outbox');
+  for(const b of batches){
+    try{
+      const res = await fetch(FLOW_UPLOAD_URL, {
+        method:'POST',
+        headers:{ 'Content-Type':'text/plain; charset=utf-8' },
+        body: JSON.stringify({
+          user: $user.value.trim(),
+          password: $pass.value.trim(),
+          room_code: b.room_code,
+          batch_id: b.batch_id,
+          images: b.images
+        })
+      });
+      const text = await res.text();
+      let data; try { data = JSON.parse(text); } catch { data = { ok: res.ok, raw: text }; }
+      if(res.ok && data.ok){
+        const okIds = new Set((data.results || []).filter(r=>r.ok).map(r=>r.image_id));
+        for (const img of b.images) if (okIds.has(img.image_id)) await put('processed',{image_id: img.image_id, ts: Date.now()});
+        await del('outbox', b.batch_id);
+        status(`Lote ${b.batch_id} enviado (${(data.results||[]).length} fotos).`);
+      }else{
+        console.error('Upload error', res.status, data);
+        status(`Error HTTP ${res.status}`, false);
+        throw new Error(`HTTP ${res.status}`);
+      }
+    }catch(e){
+      console.warn('Reintento por error:', e.message);
+      status(`Error enviando ${b.batch_id}. Reintento en ${Math.round(backoff/1000)}s…`, false);
+    }
+  }
+  await updateQueueState();
+}
+let backoff = RETRY_BASE_MS;
+async function sendOutboxWithRetry(){
+  await sendOutboxOnce();
+  const out = await getAll('outbox');
+  if(out.length===0){ backoff = RETRY_BASE_MS; return; }
+  backoff = Math.min(backoff*2, RETRY_MAX_MS);
+  setTimeout(sendOutboxWithRetry, backoff);
+}
+
+async function triggerBGSync(){
+  // disparo inmediato
+  sendOutboxWithRetry();
+  // respaldo con Background Sync
+  if('serviceWorker' in navigator && 'SyncManager' in window){
+    try { const reg = await navigator.serviceWorker.ready; await reg.sync.register('sync-outbox'); } catch {}
+  }
+}
+
+/* =================== Diagnóstico y utilidades =================== */
+async function testAuth(){
+  status('Probando credenciales…');
+  try{
+    const res = await fetch(FLOW_UPLOAD_URL, {
+      method:'POST',
+      headers:{'Content-Type':'text/plain; charset=utf-8'},
+      body: JSON.stringify({ user:$user.value.trim(), password:$pass.value.trim(), room_code: normalizeRoom($room.value), images: [] })
+    });
+    const txt = await res.text();
+    log('Auth → HTTP', res.status, txt);
+    if (res.status===200) status('Credenciales OK');
+    else if(res.status===401) status('Credenciales incorrectas', false);
+    else status(`Auth respondió HTTP ${res.status}`, false);
+  }catch(e){ log('Auth error:', e.message); status('Error de red en auth', false); }
+}
+async function showOutbox(){ const out = await getAll('outbox'); log('Outbox:', out.length, out); }
+async function forceUpdate(){
+  try{
+    if ('caches' in window) {
+      const keys = await caches.keys();
+      for (const k of keys) if (k.startsWith('gondolas-')) await caches.delete(k);
+    }
+    if (navigator.serviceWorker) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      for (const r of regs) await r.unregister();
+    }
+    location.reload();
+  }catch(e){ log('forceUpdate error:', e.message); }
+}
+
+/* =================== Eventos UI =================== */
+$btnStart.onclick = startCamera;
+$btnCapture.onclick = capture;
+$btnRetake.onclick = ()=>{ $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true; photoReady=false; currentJpegB64=null; status('Repita la captura.'); };
+$btnAddPhoto.onclick = addCurrentPhotoToQueue;
+$btnSendBatch.onclick = async ()=>{ await buildAndStageBatches(); status('Enviando lote…'); await sendOutboxWithRetry(); triggerBGSync(); };
+$btnRetry.onclick = ()=>{ status('Forzando envío…'); sendOutboxWithRetry(); };
+$btnTestAuth.onclick = testAuth;
+$btnShowOutbox.onclick = showOutbox;
+$btnForceUpdate.onclick = forceUpdate;
+
+/* =================== Init =================== */
+openDB().then(()=>{ refreshGallery(); updateQueueState(); log('Conectado:', navigator.onLine); });
+// Registro del Service Worker (scope dinámico)
+if('serviceWorker' in navigator){
+  const base = location.pathname.endsWith('/') ? location.pathname : location.pathname.replace(/[^/]+$/, '');
+  navigator.serviceWorker.register(`${base}sw.js`, { scope: base })
+    .then(reg => log('SW scope:', reg.scope))
+    .catch(()=>{});
+}
+</script>
+</body>
+</html>
 
 
 
