@@ -24,32 +24,42 @@
 <body>
 <div class="wrap"><div class="card">
   <h1>Captura de Góndolas</h1>
+
   <label>Usuario</label>
   <input id="user" autocomplete="username" />
+
   <label>Contraseña</label>
   <input id="pass" type="password" autocomplete="current-password" />
+
   <label>N° de sala</label>
   <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
+
   <div style="display:flex;gap:10px;margin-top:8px">
     <button id="btnStart">Iniciar cámara</button>
     <button id="btnCapture" class="secondary" disabled>Capturar</button>
   </div>
+
   <div class="videoBox"><video id="camera" autoplay playsinline muted></video><canvas id="snapshot" style="display:none"></canvas></div>
+
   <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap">
     <button id="btnRetake" class="secondary" disabled>Repetir</button>
     <button id="btnAddPhoto" class="secondary" disabled>Agregar foto</button>
     <button id="btnSendBatch" disabled>Enviar lote</button>
   </div>
+
   <!-- Galería de fotos pendientes -->
   <div id="gallery"></div>
+
   <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes</span></div>
 </div></div>
+
 <script>
 /* =================== Config =================== */
-const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc"; // URL del trigger HTTP
+const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/51a6e085ab6f40338b007d0b0925eaa9/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=XRRtlLgS7mtHs9PjkE64NpUyuvbDQXUoe9rP1VawKsc"; // Pega aquí la URL del trigger HTTP
 const MAX_DIM = 1600, JPEG_QUALITY = 0.82;
-const BATCH_MAX_IMAGES = 5; // tamaño de sub-lotes
+const BATCH_MAX_IMAGES = 5;           // tamaño de sub-lotes
 const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000;
+
 /* =================== Estado/UI =================== */
 const $user = document.getElementById('user');
 const $pass = document.getElementById('pass');
@@ -64,10 +74,13 @@ const $canvas = document.getElementById('snapshot');
 const $msg = document.getElementById('msg');
 const $gallery = document.getElementById('gallery');
 const $queueMsg = document.getElementById('queueMsg');
+
 let stream=null, photoReady=false, currentJpegB64=null;
+
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
-function normalizeRoom(v){ return (v || "").toUpperCase().trim().replace(/\s+/g,''); }
+function normalizeRoom(v){ return (v||"").toUpperCase().trim().replace(/\s+/g,''); }
 function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
+
 /* =================== Cámara =================== */
 async function startCamera(){
   if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
@@ -91,6 +104,7 @@ function capture(){
   $btnAddPhoto.disabled=false; $btnRetake.disabled=false; $btnCapture.disabled=true;
   status('Foto capturada. Puedes agregarla al lote.');
 }
+
 /* =================== IndexedDB (cola offline) =================== */
 let db;
 function openDB(){
@@ -111,6 +125,7 @@ function put(store, val){ return new Promise((res,rej)=>{const r=tx(store,'readw
 function del(store, key){ return new Promise((res,rej)=>{const r=tx(store,'readwrite').delete(key); r.onsuccess=()=>res(); r.onerror=()=>rej(r.error);}); }
 function getAll(store){ return new Promise((res,rej)=>{const r=tx(store).getAll(); r.onsuccess=()=>res(r.result||[]); r.onerror=()=>rej(r.error);}); }
 const uuid = () => crypto.randomUUID ? crypto.randomUUID() : ('id-' + Date.now() + '-' + Math.random().toString(16).slice(2));
+
 /* =================== Galería =================== */
 async function refreshGallery(){
   const items = await getAll('captures');
@@ -133,8 +148,9 @@ async function refreshGallery(){
 async function updateQueueState(){
   const cap = await getAll('captures');
   const out = await getAll('outbox');
-  $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes  |  Lotes en envío: ${out.length}`;
+  $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
 }
+
 /* =================== Flujo de agregar y enviar =================== */
 async function addCurrentPhotoToQueue(){
   if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
@@ -152,35 +168,25 @@ async function addCurrentPhotoToQueue(){
   await refreshGallery(); await updateQueueState();
   status('Foto agregada a la cola.');
 }
+
 async function buildAndStageBatches(){
   const items = await getAll('captures');
   if(items.length===0) return;
-  // Agrupar por user::room_code para no mezclar salas
-  const groups = new Map();
-  for (const it of items) {
-    const key = `${it.user}::${it.room_code}`;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(it);
-  }
-  for (const [key, arr] of groups) {
-    const [user, room_code] = key.split('::');
-    for (let i=0; i<arr.length; i+=BATCH_MAX_IMAGES) {
-      const chunk = arr.slice(i, i+BATCH_MAX_IMAGES);
-      const batch = {
-        batch_id: uuid(),
-        room_code,
-        user,
-        created_at: new Date().toISOString(),
-        images: chunk.map(({ image_id, image_base64, client_time, device }) => ({
-          image_id, image_base64, client_time, device
-        }))
-      };
-      await put('outbox', batch);
-      for (const it of chunk) await del('captures', it.image_id);
-    }
+  for(let i=0; i<items.length; i+=BATCH_MAX_IMAGES){
+    const chunk = items.slice(i, i+BATCH_MAX_IMAGES);
+    const batch = {
+      batch_id: uuid(),
+      room_code: normalizeRoom($room.value),
+      user: $user.value.trim(),
+      created_at: new Date().toISOString(),
+      images: chunk.map(({image_id, image_base64, client_time, device})=>({ image_id, image_base64, client_time, device }))
+    };
+    await put('outbox', batch);
+    for(const it of chunk){ await del('captures', it.image_id); }
   }
   await refreshGallery(); await updateQueueState();
 }
+
 async function sendOutboxOnce(){
   const batches = await getAll('outbox');
   for(const b of batches){
@@ -193,17 +199,13 @@ async function sendOutboxOnce(){
           password: $pass.value.trim(),
           room_code: b.room_code,
           batch_id: b.batch_id,
-          images: b.images // cada image tiene image_id y base64 sin prefijo
+          images: b.images  // cada image tiene image_id y base64 sin prefijo
         })
       });
       const data = await res.json().catch(()=>({ok:res.ok}));
       if(res.ok && data.ok){
-        const okIds = new Set((data.results || []).filter(r=>r.ok).map(r=>r.image_id));
-        for (const img of b.images) {
-          if (okIds.has(img.image_id)) {
-            await put('processed',{image_id: img.image_id, ts: Date.now()});
-          }
-        }
+        // marcar imágenes como procesadas (idempotencia cliente)
+        for(const img of b.images){ await put('processed',{image_id: img.image_id, ts: Date.now()}); }
         await del('outbox', b.batch_id);
       }else{
         throw new Error('HTTP batch error');
@@ -214,6 +216,7 @@ async function sendOutboxOnce(){
   }
   await updateQueueState();
 }
+
 let backoff = RETRY_BASE_MS;
 async function sendOutboxWithRetry(){
   await sendOutboxOnce();
@@ -222,6 +225,7 @@ async function sendOutboxWithRetry(){
   backoff = Math.min(backoff*2, RETRY_MAX_MS);
   setTimeout(sendOutboxWithRetry, backoff);
 }
+
 /* =================== Background Sync & conectividad =================== */
 async function triggerBGSync(){
   if('serviceWorker' in navigator && 'SyncManager' in window){
@@ -233,17 +237,11 @@ async function triggerBGSync(){
     sendOutboxWithRetry();
   }
 }
+
 window.addEventListener('online', ()=>{ status('Conectado. Reanudando envíos…'); triggerBGSync(); });
 window.addEventListener('offline', ()=>{ status('Sin conexión. Guardando en cola…', false); });
 document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') triggerBGSync(); });
-// Escuchar mensajes del Service Worker (SYNC_OUTBOX)
-if (navigator.serviceWorker) {
-  navigator.serviceWorker.addEventListener('message', (evt) => {
-    if (evt.data && evt.data.type === 'SYNC_OUTBOX') {
-      sendOutboxWithRetry();
-    }
-  });
-}
+
 /* =================== Eventos UI =================== */
 $btnStart.onclick = startCamera;
 $btnCapture.onclick = capture;
@@ -257,8 +255,10 @@ $btnSendBatch.onclick = async ()=>{
   await triggerBGSync();
   status('Lote en cola de envío. Se subirá cuando haya señal.');
 };
+
 /* =================== Init =================== */
 openDB().then(()=>{ refreshGallery(); updateQueueState(); });
+
 // Registro del Service Worker
 if('serviceWorker' in navigator){
   navigator.serviceWorker.register('./sw.js').catch(()=>{ /* sin SW igual funciona */ });
@@ -266,6 +266,18 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
