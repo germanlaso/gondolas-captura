@@ -35,6 +35,20 @@
       outline: 800px solid rgba(0,0,0,.0);
     }
 
+    /* ===== Botón flotante de captura y flash ===== */
+    .fab{
+      position:absolute; left:50%; transform:translateX(-50%);
+      bottom: max(12px, env(safe-area-inset-bottom) + 12px);
+      width:68px; height:68px; border-radius:50%;
+      background:#ffffff; color:#0b1220; border:0;
+      box-shadow:0 6px 20px rgba(0,0,0,.35), inset 0 0 0 2px rgba(11,18,32,.6);
+      display:grid; place-items:center; cursor:pointer; transition:transform .05s ease;
+    }
+    .fab:active{ transform:translateX(-50%) scale(0.96) }
+    .flash{ position:absolute; inset:0; pointer-events:none; border-radius:16px; background:#fff; opacity:0 }
+    .flash.on{ animation: flashBlink 140ms ease-in-out forwards }
+    @keyframes flashBlink{ 0%{opacity:.9} 100%{opacity:0} }
+
     /* ===== Controles de zoom ===== */
     .zoomBar{display:flex;align-items:center;gap:10px;margin-top:8px}
     .zoomBar input[type="range"]{width:100%}
@@ -48,7 +62,7 @@
 </head>
 <body>
 <div class="wrap"><div class="card">
-  <div class="build">v2-diag — overlay 4:3 + zoom — captura robusta</div>
+  <div class="build">v2-diag — overlay 4:3 + zoom — botón flotante + auto-add</div>
   <h1>Captura de Góndolas</h1>
 
   <label>Usuario</label>
@@ -61,13 +75,28 @@
   <div class="row" style="margin-top:8px">
     <button id="btnStart" onclick="startCamera()">Iniciar cámara</button>
     <button id="btnCapture" class="secondary" disabled onclick="capture()">Capturar</button>
-    <button id="btnAddPhoto" class="secondary" disabled onclick="addCurrentPhotoToQueue()">Agregar foto</button>
+    <!-- Agregar foto ya no se usa: auto-add tras capturar -->
+    <button id="btnAddPhoto" class="secondary" style="display:none">Agregar foto</button>
   </div>
 
-  <!-- Video + Overlay 4:3 + canvas oculto para capturas -->
+  <!-- Video + Overlay 4:3 + canvas oculto + botón flotante + flash -->
   <div class="videoWrap" data-ar="4:3">
     <video id="camera" autoplay playsinline muted></video>
     <canvas id="snapshot" style="display:none"></canvas>
+
+    <!-- Botón flotante (ícono de cámara) -->
+    <button id="btnShutter" class="fab" aria-label="Capturar" onclick="capture()">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M9 4l1.5-2h3L15 4h3a3 3 0 013 3v9a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3z" stroke="#0b1220" stroke-width="1.5" fill="#fff"/>
+        <circle cx="12" cy="12" r="3.5" fill="#0b1220"/>
+        <circle cx="12" cy="12" r="2.5" fill="#fff"/>
+      </svg>
+    </button>
+
+    <!-- Flash -->
+    <div id="flash" class="flash" aria-hidden="true"></div>
+
+    <!-- Rejilla -->
     <div class="overlay"></div>
   </div>
 
@@ -85,7 +114,7 @@
     <button id="btnTestAuth" class="secondary" onclick="testAuth()">Probar credenciales</button>
   </div>
 
-  <!-- Galería de fotos pendientes -->
+  <!-- Galería -->
   <div id="gallery"></div>
 
   <div class="status"><span id="msg">Listo</span><br/><span id="queueMsg">Cola: 0 fotos pendientes | Lotes en envío: 0</span></div>
@@ -113,7 +142,6 @@ const $user = document.getElementById('user');
 const $pass = document.getElementById('pass');
 const $room = document.getElementById('room');
 const $video = document.getElementById('camera');
-const $canvas = document.getElementById('snapshot');
 const $zoomBar = document.getElementById('zoomBar');
 const $zoom = document.getElementById('zoom');
 const $zoomVal = document.getElementById('zoomVal');
@@ -131,6 +159,29 @@ function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'
 function log(...args){ const s = args.map(a=> typeof a==='string'? a : JSON.stringify(a)).join(' '); $log.textContent += (s+'\n'); $log.scrollTop = $log.scrollHeight; }
 function normalizeRoom(v){ return (v || "").toUpperCase().trim().replace(/\s+/g,''); }
 function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
+
+/* ======== Feedback de captura ======== */
+let __ac; // AudioContext
+async function playShutterSound(){
+  try{
+    __ac = __ac || new (window.AudioContext || window.webkitAudioContext)();
+    if (__ac.state === 'suspended') { await __ac.resume(); }
+    const o = __ac.createOscillator();
+    const g = __ac.createGain();
+    o.type = 'square';
+    o.frequency.setValueAtTime(980, __ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(440, __ac.currentTime + 0.06);
+    g.gain.setValueAtTime(0.0001, __ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.2, __ac.currentTime + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001, __ac.currentTime + 0.09);
+    o.connect(g).connect(__ac.destination);
+    o.start(); o.stop(__ac.currentTime + 0.10);
+  }catch(e){ /* iOS en silencio puede bloquear: ignorar */ }
+}
+function triggerFlash(){
+  const el = document.getElementById('flash'); if(!el) return;
+  el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
+}
 
 /* ========== Cámara + ZOOM ========== */
 async function startCamera(){
@@ -222,10 +273,7 @@ async function capture(){
 
     const okDims = await waitForVideoDims(15, 120);
     const vw = $video?.videoWidth, vh = $video?.videoHeight;
-    if (!okDims || !vw || !vh){
-      status('Cámara aún sin dimensiones válidas. Intenta nuevamente.', false);
-      return;
-    }
+    if (!okDims || !vw || !vh){ status('Cámara aún sin dimensiones válidas. Intenta nuevamente.', false); return; }
 
     const long = Math.max(vw, vh), scale = long > MAX_DIM ? MAX_DIM / long : 1;
     const tw = Math.round(vw * scale), th = Math.round(vh * scale);
@@ -242,18 +290,24 @@ async function capture(){
       await new Promise(r => setTimeout(r, 120));
       ctx.drawImage($video, 0, 0, tw, th);
       dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-      if (!dataUrl || dataUrl.length < 50){
-        status('No se pudo capturar la imagen. Repite la captura.', false);
-        return;
-      }
+      if (!dataUrl || dataUrl.length < 50){ status('No se pudo capturar la imagen. Repite la captura.', false); return; }
     }
 
+    // Feedback
+    playShutterSound();
+    triggerFlash();
+    if (navigator.vibrate) navigator.vibrate(30);
+
+    // Auto-add
     currentJpegB64 = dataUrl.split(',')[1];
     photoReady = true;
-    $btnAddPhoto.disabled = false;
-    $btnRetake.disabled = false;
-    $btnCapture.disabled = true;
-    status(`Foto capturada (${tw}×${th}). Puedes agregarla al lote.`);
+    await addCurrentPhotoToQueue();
+
+    // listo para siguiente
+    $btnCapture.disabled = false;
+    $btnRetake.disabled  = true;
+    if ($btnAddPhoto) $btnAddPhoto.disabled = true;
+    status(`Foto agregada (${tw}×${th}). Lista para la siguiente.`);
   } catch(e){
     console.error('capture error', e);
     status(`Error capturando: ${e.message}`, false);
@@ -261,7 +315,7 @@ async function capture(){
 }
 
 function retake(){
-  $btnCapture.disabled=false; $btnRetake.disabled=true; $btnAddPhoto.disabled=true;
+  $btnCapture.disabled=false; $btnRetake.disabled=true; if($btnAddPhoto) $btnAddPhoto.disabled=true;
   photoReady=false; currentJpegB64=null; status('Repita la captura.');
 }
 
@@ -324,9 +378,9 @@ async function addCurrentPhotoToQueue(){
   };
   try{
     await put('captures', image);
-    photoReady=false; currentJpegB64=null; $btnAddPhoto.disabled=true; $btnCapture.disabled=false; $btnRetake.disabled=true;
+    photoReady=false; currentJpegB64=null; if($btnAddPhoto){ $btnAddPhoto.disabled=true; }
     await refreshGallery(); await updateQueueState();
-    status('Foto agregada a la cola.');
+    // sin mensaje adicional; capture() ya informó
   }catch(e){
     console.error('put captures error', e);
     status('No se pudo guardar en la cola (IndexedDB).', false);
@@ -448,5 +502,4 @@ if('serviceWorker' in navigator){
 </script>
 </body>
 </html>
-
 
