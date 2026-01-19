@@ -35,7 +35,7 @@
       outline: 800px solid rgba(0,0,0,.0);
     }
 
-    /* ===== Botón flotante de captura y flash ===== */
+    /* ===== Botón flotante y flash ===== */
     .fab{
       position:absolute; left:50%; transform:translateX(-50%);
       bottom: max(12px, env(safe-area-inset-bottom) + 12px);
@@ -49,10 +49,16 @@
     .flash.on{ animation: flashBlink 140ms ease-in-out forwards }
     @keyframes flashBlink{ 0%{opacity:.9} 100%{opacity:0} }
 
-    /* ===== Controles de zoom ===== */
+    /* ===== Zoom ===== */
     .zoomBar{display:flex;align-items:center;gap:10px;margin-top:8px}
     .zoomBar input[type="range"]{width:100%}
     .zoomBar .tag{font-size:12px;color:#a3bffa}
+
+    /* ===== Overlay de permiso (autostart fallback) ===== */
+    .perm{position:absolute; inset:0; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,.45)}
+    .perm .box{background:#0b1220;border:1px solid #223;border-radius:14px;padding:16px;max-width:90%;text-align:center}
+    .perm p{margin:0 0 10px 0;color:#cbd5e1;font-size:14px}
+    .perm button{background:#22c55e}
 
     .build{font-size:12px;color:#60a5fa;margin-bottom:8px}
     .diag{margin-top:14px;background:#0a1222;border:1px dashed #2a365a;border-radius:12px;padding:12px}
@@ -62,7 +68,7 @@
 </head>
 <body>
 <div class="wrap"><div class="card">
-  <div class="build">v2-diag — overlay 4:3 + zoom — botón flotante + auto-add</div>
+  <div class="build">v2-diag — autostart cámara — overlay 4:3 + zoom — botón flotante + auto-add</div>
   <h1>Captura de Góndolas</h1>
 
   <label>Usuario</label>
@@ -72,19 +78,18 @@
   <label>N° de sala</label>
   <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
 
+  <!-- Botonera: ocupo sólo Enviar/Reintentar/TestAuth; “Iniciar cámara” queda oculto como respaldo -->
   <div class="row" style="margin-top:8px">
-    <button id="btnStart" onclick="startCamera()">Iniciar cámara</button>
-    <button id="btnCapture" class="secondary" disabled onclick="capture()">Capturar</button>
-    <!-- Agregar foto ya no se usa: auto-add tras capturar -->
+    <button id="btnStart" style="display:none" onclick="manualStart()">Iniciar cámara</button>
+    <!-- Botón tradicional 'Capturar' eliminado -->
     <button id="btnAddPhoto" class="secondary" style="display:none">Agregar foto</button>
   </div>
 
-  <!-- Video + Overlay 4:3 + canvas oculto + botón flotante + flash -->
-  <div class="videoWrap" data-ar="4:3">
+  <!-- Video + Overlay 4:3 + canvas + botón flotante + flash + overlay permiso -->
+  <div class="videoWrap" data-ar="4:3" id="vw">
     <video id="camera" autoplay playsinline muted></video>
     <canvas id="snapshot" style="display:none"></canvas>
 
-    <!-- Botón flotante (ícono de cámara) -->
     <button id="btnShutter" class="fab" aria-label="Capturar" onclick="capture()">
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M9 4l1.5-2h3L15 4h3a3 3 0 013 3v9a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h3z" stroke="#0b1220" stroke-width="1.5" fill="#fff"/>
@@ -92,15 +97,17 @@
         <circle cx="12" cy="12" r="2.5" fill="#fff"/>
       </svg>
     </button>
-
-    <!-- Flash -->
     <div id="flash" class="flash" aria-hidden="true"></div>
-
-    <!-- Rejilla -->
+    <div id="perm" class="perm" aria-live="polite">
+      <div class="box">
+        <p>Para comenzar, permite el acceso a la cámara.</p>
+        <button onclick="manualStart()">Permitir cámara</button>
+      </div>
+    </div>
     <div class="overlay"></div>
   </div>
 
-  <!-- Barra de zoom -->
+  <!-- Zoom -->
   <div class="zoomBar" id="zoomBar" hidden>
     <span class="tag">Zoom</span>
     <input type="range" id="zoom" min="1" max="1" step="0.1" value="1" />
@@ -108,7 +115,6 @@
   </div>
 
   <div class="row" style="margin-top:10px">
-    <button id="btnRetake" class="secondary" disabled onclick="retake()">Repetir</button>
     <button id="btnSendBatch" onclick="(async()=>{await buildAndStageBatches();status('Enviando lote…');await sendOutboxWithRetry();triggerBGSync();})()">Enviar lote</button>
     <button id="btnRetry" class="secondary" onclick="sendOutboxWithRetry()">Reintentar ahora</button>
     <button id="btnTestAuth" class="secondary" onclick="testAuth()">Probar credenciales</button>
@@ -136,6 +142,7 @@ const FLOW_UPLOAD_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.enviro
 const MAX_DIM = 1600, JPEG_QUALITY = 0.82;
 const BATCH_MAX_IMAGES = 5;
 const RETRY_BASE_MS = 2000, RETRY_MAX_MS = 60000;
+const AUTO_START_CAMERA = true;
 
 /* ========== Estado/UI ========== */
 const $user = document.getElementById('user');
@@ -145,14 +152,13 @@ const $video = document.getElementById('camera');
 const $zoomBar = document.getElementById('zoomBar');
 const $zoom = document.getElementById('zoom');
 const $zoomVal = document.getElementById('zoomVal');
-const $btnCapture = document.getElementById('btnCapture');
-const $btnRetake = document.getElementById('btnRetake');
-const $btnAddPhoto = document.getElementById('btnAddPhoto');
 const $btnSendBatch = document.getElementById('btnSendBatch');
 const $gallery = document.getElementById('gallery');
 const $queueMsg = document.getElementById('queueMsg');
 const $msg = document.getElementById('msg');
 const $log = document.getElementById('log');
+const $perm = document.getElementById('perm');
+const $btnStart = document.getElementById('btnStart');
 let stream=null, photoReady=false, currentJpegB64=null;
 
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; log(t); }
@@ -161,32 +167,31 @@ function normalizeRoom(v){ return (v || "").toUpperCase().trim().replace(/\s+/g,
 function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
 
 /* ======== Feedback de captura ======== */
-let __ac; // AudioContext
+let __ac;
 async function playShutterSound(){
   try{
     __ac = __ac || new (window.AudioContext || window.webkitAudioContext)();
     if (__ac.state === 'suspended') { await __ac.resume(); }
-    const o = __ac.createOscillator();
-    const g = __ac.createGain();
+    const o = __ac.createOscillator(); const g = __ac.createGain();
     o.type = 'square';
     o.frequency.setValueAtTime(980, __ac.currentTime);
     o.frequency.exponentialRampToValueAtTime(440, __ac.currentTime + 0.06);
     g.gain.setValueAtTime(0.0001, __ac.currentTime);
     g.gain.exponentialRampToValueAtTime(0.2, __ac.currentTime + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, __ac.currentTime + 0.09);
-    o.connect(g).connect(__ac.destination);
-    o.start(); o.stop(__ac.currentTime + 0.10);
-  }catch(e){ /* iOS en silencio puede bloquear: ignorar */ }
+    o.connect(g).connect(__ac.destination); o.start(); o.stop(__ac.currentTime + 0.10);
+  }catch(e){}
 }
-function triggerFlash(){
-  const el = document.getElementById('flash'); if(!el) return;
-  el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
-}
+function triggerFlash(){ const el = document.getElementById('flash'); if(!el) return; el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); }
 
 /* ========== Cámara + ZOOM ========== */
-async function startCamera(){
-  if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
-    status('Complete usuario/clave y sala válida', false); return;
+async function startCamera(allowWithoutInputs=false){
+  // Para autostart no exigimos user/pass/room; se validan al enviar
+  if(!allowWithoutInputs){
+    if(!$user.value || !$pass.value || !isValidRoom(normalizeRoom($room.value))){
+      status('Complete usuario/clave y sala válida', false);
+      return;
+    }
   }
   try { if (stream) stream.getTracks().forEach(t=>t.stop()); } catch {}
 
@@ -194,10 +199,10 @@ async function startCamera(){
     if (!err || !err.name) return `Error desconocido al iniciar cámara`;
     switch (err.name) {
       case 'NotAllowedError':
-      case 'SecurityError': return 'Acceso a la cámara bloqueado. Habilítalo en el candado del navegador y recarga.';
+      case 'SecurityError': return 'Acceso a la cámara bloqueado. Autorice el permiso.';
       case 'NotFoundError': return 'No se encontró ninguna cámara.';
       case 'NotReadableError': return 'La cámara está en uso por otra aplicación.';
-      case 'OverconstrainedError': return 'La cámara no soporta estas restricciones. Probando alternativas…';
+      case 'OverconstrainedError': return 'Restricciones muy altas. Probando alternativas…';
       default: return `${err.name}: ${err.message||''}`.trim();
     }
   };
@@ -216,53 +221,48 @@ async function startCamera(){
       $video.srcObject = stream; try{ await $video.play(); }catch{}
       await new Promise(res=>{ const tid=setTimeout(res,1200); $video.onloadedmetadata=()=>{clearTimeout(tid);res();}; });
       if (!$video.videoWidth || !$video.videoHeight) throw new Error('Video sin dimensiones');
-      $btnCapture.disabled=false; status('Cámara lista');
+      status('Cámara lista');
+      $perm.style.display = 'none'; $btnStart.style.display = 'none';
       setupZoomUI(stream);
-      return;
-    }catch(e){ lastErr=e; status(explain(e), false); }
+      return true;
+    }catch(e){ lastErr=e; log('startCamera:', explain(e)); }
   }
-  status(`No se pudo acceder a la cámara. ${explain(lastErr)}`, false);
+  status(`No se pudo iniciar la cámara. ${lastErr ? lastErr.name : ''}`, false);
+  // Mostrar overlay de permiso y botón de fallback
+  $perm.style.display = 'flex'; $btnStart.style.display = 'inline-block';
+  return false;
+}
+
+async function manualStart(){ // botón de overlay/botón fallback
+  $perm.style.display = 'none';
+  const ok = await startCamera(true);
+  if(!ok){ $perm.style.display = 'flex'; }
 }
 
 function setupZoomUI(stream){
   const track = stream.getVideoTracks()[0];
   const caps = track.getCapabilities?.() || {};
   const settings = track.getSettings?.() || {};
-
   if ('zoom' in caps && (typeof caps.zoom.min === 'number')) {
     $zoomBar.hidden = false;
-    const min = caps.zoom.min ?? 1;
-    const max = caps.zoom.max ?? 1;
-    const step = caps.zoom.step || 0.1;
-    const cur  = settings.zoom ?? min;
+    const min = caps.zoom.min ?? 1, max = caps.zoom.max ?? 1, step = caps.zoom.step || 0.1, cur = settings.zoom ?? min;
     $zoom.min = min; $zoom.max = max; $zoom.step = step; $zoom.value = cur;
     $zoomVal.textContent = `${Number(cur).toFixed(1)}×`;
-
     $zoom.oninput = async () => {
-      const z = Number($zoom.value);
-      $zoomVal.textContent = `${z.toFixed(1)}×`;
-      try { await track.applyConstraints({ advanced: [{ zoom: z }] }); }
-      catch(e){ log('Zoom error:', e.message); }
+      const z = Number($zoom.value); $zoomVal.textContent = `${z.toFixed(1)}×`;
+      try { await track.applyConstraints({ advanced: [{ zoom: z }] }); } catch(e){ log('Zoom error:', e.message); }
     };
-  } else {
-    $zoomBar.hidden = true; // no soporta zoom
-  }
+  } else { $zoomBar.hidden = true; }
 }
 
 async function waitForVideoDims(maxTries=15, delayMs=120){
-  for (let i=0; i<maxTries; i++){
-    if ($video && $video.videoWidth && $video.videoHeight) return true;
-    await new Promise(r => setTimeout(r, delayMs));
-  }
+  for (let i=0; i<maxTries; i++){ if ($video && $video.videoWidth && $video.videoHeight) return true; await new Promise(r => setTimeout(r, delayMs)); }
   return !!($video && $video.videoWidth && $video.videoHeight);
 }
-
 function getOrCreateCanvas(){
   let cv = document.getElementById('snapshot');
   if (cv && cv.getContext) return cv;
-  cv = document.createElement('canvas');
-  cv.id = 'snapshot';
-  cv.style.display = 'none';
+  cv = document.createElement('canvas'); cv.id = 'snapshot'; cv.style.display = 'none';
   (document.querySelector('.videoWrap') || document.body).appendChild(cv);
   return cv;
 }
@@ -270,10 +270,9 @@ function getOrCreateCanvas(){
 async function capture(){
   try{
     status('Capturando…');
-
     const okDims = await waitForVideoDims(15, 120);
     const vw = $video?.videoWidth, vh = $video?.videoHeight;
-    if (!okDims || !vw || !vh){ status('Cámara aún sin dimensiones válidas. Intenta nuevamente.', false); return; }
+    if (!okDims || !vw || !vh){ status('Cámara sin dimensiones aún. Intente nuevamente.', false); return; }
 
     const long = Math.max(vw, vh), scale = long > MAX_DIM ? MAX_DIM / long : 1;
     const tw = Math.round(vw * scale), th = Math.round(vh * scale);
@@ -290,33 +289,17 @@ async function capture(){
       await new Promise(r => setTimeout(r, 120));
       ctx.drawImage($video, 0, 0, tw, th);
       dataUrl = canvas.toDataURL('image/jpeg', JPEG_QUALITY);
-      if (!dataUrl || dataUrl.length < 50){ status('No se pudo capturar la imagen. Repite la captura.', false); return; }
+      if (!dataUrl || dataUrl.length < 50){ status('No se pudo capturar la imagen. Reintente.', false); return; }
     }
 
-    // Feedback
-    playShutterSound();
-    triggerFlash();
-    if (navigator.vibrate) navigator.vibrate(30);
+    playShutterSound(); triggerFlash(); if (navigator.vibrate) navigator.vibrate(30);
 
-    // Auto-add
     currentJpegB64 = dataUrl.split(',')[1];
     photoReady = true;
     await addCurrentPhotoToQueue();
 
-    // listo para siguiente
-    $btnCapture.disabled = false;
-    $btnRetake.disabled  = true;
-    if ($btnAddPhoto) $btnAddPhoto.disabled = true;
     status(`Foto agregada (${tw}×${th}). Lista para la siguiente.`);
-  } catch(e){
-    console.error('capture error', e);
-    status(`Error capturando: ${e.message}`, false);
-  }
-}
-
-function retake(){
-  $btnCapture.disabled=false; $btnRetake.disabled=true; if($btnAddPhoto) $btnAddPhoto.disabled=true;
-  photoReady=false; currentJpegB64=null; status('Repita la captura.');
+  } catch(e){ console.error('capture error', e); status(`Error capturando: ${e.message}`, false); }
 }
 
 /* ========== IndexedDB ========== */
@@ -357,7 +340,8 @@ async function refreshGallery(){
     };
     $gallery.appendChild(d);
   }
-  $btnSendBatch.disabled = items.length===0;
+  // Habilitar envío si hay imágenes listas
+  document.getElementById('btnSendBatch').disabled = items.length===0;
 }
 async function updateQueueState(){
   const cap = await getAll('captures');
@@ -365,7 +349,7 @@ async function updateQueueState(){
   $queueMsg.textContent = `Cola: ${cap.length} fotos pendientes | Lotes en envío: ${out.length}`;
 }
 
-/* ========== Flujo de agregar y enviar ========== */
+/* ========== Lotes: agregar y enviar ========== */
 async function addCurrentPhotoToQueue(){
   if(!photoReady || !currentJpegB64){ status('Capture una foto primero', false); return; }
   const image = {
@@ -378,13 +362,9 @@ async function addCurrentPhotoToQueue(){
   };
   try{
     await put('captures', image);
-    photoReady=false; currentJpegB64=null; if($btnAddPhoto){ $btnAddPhoto.disabled=true; }
+    photoReady=false; currentJpegB64=null;
     await refreshGallery(); await updateQueueState();
-    // sin mensaje adicional; capture() ya informó
-  }catch(e){
-    console.error('put captures error', e);
-    status('No se pudo guardar en la cola (IndexedDB).', false);
-  }
+  }catch(e){ console.error('put captures error', e); status('No se pudo guardar en la cola (IndexedDB).', false); }
 }
 
 async function buildAndStageBatches(){
@@ -479,19 +459,13 @@ async function testAuth(){
 async function showOutbox(){ const out = await getAll('outbox'); log('Outbox:', out.length, out); }
 async function forceUpdate(){
   try{
-    if ('caches' in window) {
-      const keys = await caches.keys();
-      for (const k of keys) if (k.startsWith('gondolas-')) await caches.delete(k);
-    }
-    if (navigator.serviceWorker) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      for (const r of regs) await r.unregister();
-    }
+    if ('caches' in window) { const keys = await caches.keys(); for (const k of keys) if (k.startsWith('gondolas-')) await caches.delete(k); }
+    if (navigator.serviceWorker) { const regs = await navigator.serviceWorker.getRegistrations(); for (const r of regs) await r.unregister(); }
     location.reload();
   }catch(e){ log('forceUpdate error:', e.message); }
 }
 
-/* ========== Init ========== */
+/* ========== Init: autostart cámara ========== */
 openDB().then(()=>{ refreshGallery(); updateQueueState(); log('Conectado:', navigator.onLine); });
 if('serviceWorker' in navigator){
   const base = location.pathname.endsWith('/') ? location.pathname : location.pathname.replace(/[^/]+$/, '');
@@ -499,6 +473,15 @@ if('serviceWorker' in navigator){
     .then(reg => log('SW scope:', reg.scope))
     .catch(()=>{});
 }
+document.addEventListener('DOMContentLoaded', async () => {
+  if (AUTO_START_CAMERA) {
+    const ok = await startCamera(true);     // no exige user/pass/sala para iniciar cámara
+    if (!ok) {                              // si falla por permiso, mostrar overlay
+      document.getElementById('perm').style.display = 'flex';
+      document.getElementById('btnStart').style.display = 'inline-block';
+    }
+  }
+});
 </script>
 </body>
 </html>
