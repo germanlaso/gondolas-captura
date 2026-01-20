@@ -51,6 +51,12 @@
   function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); }
   function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
 
+  
+// URL del Flow "Sala más cercana" (trigger HTTP)
+  const NEAREST_ROOM_URL = "https://https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/46e407b51df54c10913b688a04e58952/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=jRqVv7H43uLfquHMkXUPNKz6cm5vB18elZEX6_EdHKc";
+  const MAX_METERS_DEFAULT = 1000; // radio por defecto para found/withinMax
+
+
   // Autocompletar con última sesión (si existiera)
   (function preload(){
     try{
@@ -77,6 +83,98 @@
     // Ir a cámara (con token anti-caché)
     location.href = './capture.html?t=' + Date.now();
   };
+  
+/** ========= Helpers ya existentes / similares en tu index ========= **/
+const $user = document.getElementById('user');
+const $pass = document.getElementById('pass');
+const $room = document.getElementById('room');
+const $msg  = document.getElementById('msg'); // si no existe, crea un <div id="msg"></div>
+
+function status(t, ok=true){ 
+  if(!$msg) return; 
+  $msg.textContent=t; 
+  $msg.style.color = ok ? '#a7f3d0' : '#fecaca'; 
+}
+function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); }
+function isValidRoom(v){ return /^[A-Z0-9\-]{1,20}$/.test(v); }
+
+/** ========= Llamado al flujo SIN preflight (text/plain) ========= **/
+async function nearestRoom(lat, lng, maxMeters = MAX_METERS_DEFAULT){
+  try{
+    const res = await fetch(NEAREST_ROOM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' }, // <- evita preflight
+      body: JSON.stringify({ lat, lng, maxMeters })
+    });
+    const data = await res.json().catch(()=> ({}));
+    return { ok: res.ok && data && data.ok === true, data, status: res.status };
+  }catch(e){
+    return { ok:false, error: e.message };
+  }
+}
+
+/** ========= Geolocalización (auto) ========= **/
+function getLocationOnce(options){
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('Geolocalización no soportada'));
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve(pos),
+      err => reject(err),
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0, ...(options||{}) }
+    );
+  });
+}
+
+/** ========= Lógica principal al cargar index ========= **/
+(async function autoSuggestRoom(){
+  try{
+    // Mostrar “cargando” suave, sin bloquear al usuario
+    status('Buscando sala cercana…');
+
+    // 1) Obtener geolocalización (el navegador pedirá permiso solo la primera vez)
+    const pos = await getLocationOnce();
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+
+    // 2) Feedback de precisión (opcional)
+    if (accuracy && accuracy > 100) {
+      status(`Precisión limitada (${Math.round(accuracy)} m). Buscando sala cercana…`);
+    }
+
+    // 3) Consultar flujo
+    const r = await nearestRoom(lat, lng, MAX_METERS_DEFAULT);
+    if (!r.ok) {
+      // No bloquear: el usuario aún puede escribir la sala manualmente
+      status(`No se pudo sugerir sala (HTTP ${r.status || ''}). Ingresa la sala manualmente.`, false);
+      return;
+    }
+
+    // 4) Validar respuesta y aplicar sugerencia
+    const s = r.data && r.data.sala ? r.data.sala : null;
+    if (!r.data.found || !s || !s.roomCode) {
+      status('No hay salas dentro del radio. Ingresa la sala manualmente.', false);
+      return;
+    }
+
+    // 5) Pre‑rellenar el campo Sala y persistir en sessionStorage como en tu app
+    $room.value = normalizeRoom(s.roomCode);
+    try { 
+      sessionStorage.setItem('gl_room', $room.value); 
+    } catch {}
+
+    // (Opcional) Persistir usuario/contraseña si ya estaban, para coherencia con tu lógica
+    try {
+      if ($user && $user.value) sessionStorage.setItem('gl_user', $user.value.trim());
+      if ($pass && $pass.value) sessionStorage.setItem('gl_pass', $pass.value.trim());
+    } catch {}
+
+    const dist = typeof s.distanceMeters === 'number' ? `${Math.round(s.distanceMeters)} m` : '';
+    status(`Sala sugerida: ${$room.value}${dist ? ' · ' + dist : ''}`);
+  }catch(e){
+    // No bloquear: permitir ingreso manual si falla ubicación
+    status(`No se pudo obtener ubicación: ${e.message}. Puedes ingresar la sala manualmente.`, false);
+  }
+})();
+
 </script>
 </body>
 </html>
