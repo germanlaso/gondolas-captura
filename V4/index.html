@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Ingreso | Captura de Góndolas</title>
+  <style>
+    body{margin:0;background:#0f172a;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+    .wrap{max-width:520px;margin:0 auto;padding:16px}
+    .card{background:#0b1220;border:1px solid #202a44;border-radius:16px;padding:20px;margin-top:12vh}
+    h1{margin:0 0 16px 0}
+    label{display:block;font-size:14px;color:#94a3b8;margin:10px 0 6px}
+    input,select{width:100%;padding:12px 14px;border-radius:12px;border:1px solid #29324c;background:#0e1629;color:#e5e7eb;font-size:16px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    button{border:0;background:#2563eb;color:white;border-radius:12px;padding:12px 14px;font-size:16px;font-weight:600;cursor:pointer}
+    .status{margin-top:12px;font-size:14px;color:#94a3b8;min-height:1.2em}
+    .muted{font-size:12px;color:#93a3c0;margin-top:10px}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>Ingreso</h1>
+
+    <label>Usuario</label>
+    <input id="user" autocomplete="username" />
+
+    <label>Contraseña</label>
+    <input id="pass" type="password" autocomplete="current-password" />
+
+    <label>N° de sala</label>
+    <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
+
+    <div class="row">
+      <button id="go">Tomar fotos</button>
+    </div>
+
+    <div class="status" id="msg"></div>
+    <div class="muted">Al continuar, la cámara se iniciará automáticamente en la siguiente pantalla.</div>
+  </div>
+</div>
+
+<script>
+  const $user = document.getElementById('user');
+  const $pass = document.getElementById('pass');
+  const $room = document.getElementById('room');
+  const $go   = document.getElementById('go');
+  const $msg  = document.getElementById('msg');
+
+  function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
+  function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); }
+  function isValidRoom(v){ return /^[A-Z0-9-]{1,20}$/.test(v); }
+
+  // Autocompletar con última sesión (si existiera)
+  (function preload(){
+    try{
+      const u = sessionStorage.getItem('gl_user')||'';
+      const r = sessionStorage.getItem('gl_room')||'';
+      $user.value = u;
+      $room.value = r;
+    }catch{}
+  })();
+
+  $go.onclick = ()=>{
+    const u = ($user.value||'').trim();
+    const p = ($pass.value||'').trim();
+    const r = normalizeRoom($room.value);
+    if(!u || !p || !isValidRoom(r)){
+      status('Completa usuario, contraseña y sala válida (A-Z, 0-9, "-").', false);
+      return;
+    }
+    try{
+      sessionStorage.setItem('gl_user', u);
+      sessionStorage.setItem('gl_pass', p);
+      sessionStorage.setItem('gl_room', r);
+    }catch{}
+    // Ir a cámara (con token anti-caché)
+    location.href = './capture.html?t=' + Date.now();
+  };
+</script>
+</body>
+</html>
