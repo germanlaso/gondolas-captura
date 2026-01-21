@@ -68,7 +68,7 @@
           <input id="pass" type="password" autocomplete="current-password" />
 
           <label for="room">N° de sala</label>
-          <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="20" placeholder="ej: A01" />
+          <input id="room" type="text" inputmode="text" autocapitalize="characters" autocomplete="off" spellcheck="false" maxlength="50" placeholder="ej: A01" />
         </div>
 
         <div class="actions">
@@ -100,7 +100,7 @@ const $msg  = document.getElementById('msg');
 
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
 function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); }
-function isValidRoom(v){ return /^[A-Z0-9\-]{1,20}$/.test(v); }
+function isValidRoom(v){ return /^[A-Z0-9\-]{1,50}$/.test(v); }
 
 (function preload(){ try{ $user.value = sessionStorage.getItem('gl_user')||''; $room.value = sessionStorage.getItem('gl_room')||''; }catch{} refreshFab(); })();
 function formValid(){ const u=($user.value||'').trim(); const p=($pass.value||'').trim(); const r=normalizeRoom($room.value); return !!(u && p && isValidRoom(r)); }
