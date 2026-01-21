@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cámara · Captura de Góndolas</title>
+<style>
+body{margin:0;background:#0f172a;color:#e5e7eb;font-family:system-ui,-apple-system,Segoe UI,Roboto}
+
+.app-header{
+  position:fixed; top:0; left:0; right:0; z-index:50;
+  display:flex; align-items:center; gap:12px;
+  padding:8px 12px;
+  background:#0b1220;
+  border-bottom:1px solid #202a44;
+}
+.app-header img{height:32px; width:auto}
+.header-info{display:flex;flex-direction:column}
+.header-info strong{font-size:14px}
+
+.main{padding-top:64px}
+.wrap{max-width:720px;margin:0 auto;padding:16px}
+.card{background:#0b1220;border:1px solid #202a44;border-radius:16px;padding:16px}
+
+.videoWrap{position:relative;border-radius:16px;overflow:hidden;border:1px solid #223;background:black;margin-bottom:12px}
+.videoWrap[data-ar="4:3"]{aspect-ratio:4/3}
+.videoWrap video{width:100%;height:100%;object-fit:cover}
+
+.fab{position:absolute;left:50%;transform:translateX(-50%);bottom:18px;width:76px;height:76px;border-radius:50%;background:#ffffff;border:0;display:grid;place-items:center;cursor:pointer}
+
+</style>
+</head>
+<body>
+<header class="app-header">
+  <img src="logo-traverso.webp" alt="Traverso" />
+  <div class="header-info">
+    <strong>Auditoría Góndolas</strong>
+    <span class="muted" id="who">Usuario · Sala</span>
+  </div>
+</header>
+
+<div class="main">
+<div class="wrap">
+  <div class="card">
+    <div class="videoWrap" data-ar="4:3">
+      <video id="camera" autoplay playsinline muted></video>
+      <button class="fab">●</button>
+    </div>
+  </div>
+</div>
+</div>
+</body>
+</html>
