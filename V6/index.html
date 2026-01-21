@@ -24,16 +24,13 @@
   .status{margin-top:12px;font-size:14px;color:#94a3b8;min-height:1.2em;text-align:center}
   .muted{font-size:12px;color:#93a3c0;margin-top:10px;text-align:center}
 
-  /* FAB centrado opcional para pantallas pequeñas (visible solo cuando todo válido) */
-  .fab{
-    position:fixed; left:50%; bottom:var(--fab-bottom); transform:translateX(-50%);
-    width:var(--fab-size); height:var(--fab-size);
-    border-radius:999px; background:#2563eb; color:#fff; border:0;
-    display:none; place-items:center; z-index:1200; box-shadow:0 8px 28px rgba(0,0,0,.35);
-  }
+  /* FAB centrado inferior (se muestra si el formulario está válido) */
+  .fab{ position:fixed; left:50%; bottom:var(--fab-bottom); transform:translateX(-50%);
+        width:var(--fab-size); height:var(--fab-size); border-radius:999px;
+        background:#2563eb; color:#fff; border:0; display:none; place-items:center;
+        z-index:1200; box-shadow:0 8px 28px rgba(0,0,0,.35); }
   .fab svg{ width:22px; height:22px; }
   .fab.show{display:grid}
-  
   </style>
 </head>
 <body>
@@ -70,6 +67,10 @@
   </button>
 
 <script>
+// ====== CONFIG NEAREST ROOM (restaurado) ======
+const NEAREST_ROOM_URL = "https://defaultab52009f566c40d1940686e6a61980.d1.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/46e407b51df54c10913b688a04e58952/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=jRqVv7H43uLfquHMkXUPNKz6cm5vB18elZEX6_EdHKc";
+const MAX_METERS_DEFAULT = 1500;
+
 const $user = document.getElementById('user');
 const $pass = document.getElementById('pass');
 const $room = document.getElementById('room');
@@ -101,16 +102,53 @@ function goCapture(){
     status('Completa usuario, contraseña y sala válida (A-Z, 0-9, "-").', false);
     return;
   }
-  try{
-    sessionStorage.setItem('gl_user', u);
-    sessionStorage.setItem('gl_pass', p);
-    sessionStorage.setItem('gl_room', r);
-  }catch{}
+  try{ sessionStorage.setItem('gl_user', u); sessionStorage.setItem('gl_pass', p); sessionStorage.setItem('gl_room', r); }catch{}
   location.href = './capture.html?t=' + Date.now();
 }
+$go.onclick = goCapture; $fab.onclick = goCapture;
 
-$go.onclick = goCapture;
-$fab.onclick = goCapture;
+// ====== NEAREST ROOM helpers (restaurado) ======
+async function nearestRoom(lat, lng, maxMeters = MAX_METERS_DEFAULT){
+  try{
+    const res = await fetch(NEAREST_ROOM_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: JSON.stringify({ lat, lng, maxMeters })
+    });
+    const data = await res.json().catch(()=>({}));
+    console.log('NearestRoom →', res.status, data);
+    return { ok: res.ok && data && data.ok === true, data, status: res.status };
+  }catch(e){ console.log('NearestRoom error →', e); return { ok:false, error:e.message }; }
+}
+
+function getLocationOnce(options){
+  return new Promise((resolve, reject)=>{
+    if(!('geolocation' in navigator)) return reject(new Error('Geolocalización no soportada'));
+    navigator.geolocation.getCurrentPosition(
+      pos=>resolve(pos), err=>reject(err),
+      { enableHighAccuracy:true, timeout:10000, maximumAge:0, ...(options||{}) }
+    );
+  });
+}
+
+// ====== Auto-sugerencia (restaurada) ======
+(async function autoSuggestRoom(){
+  try{
+    status('Buscando sala cercana…');
+    const pos = await getLocationOnce();
+    const { latitude: lat, longitude: lng, accuracy } = pos.coords;
+    if (accuracy && accuracy > 100) status(`Precisión limitada (${Math.round(accuracy)} m). Buscando…`);
+    const r = await nearestRoom(lat, lng, MAX_METERS_DEFAULT);
+    if(!r.ok){ status(`No se pudo sugerir sala (HTTP ${r.status||''}). Ingresa manualmente.`, false); return; }
+    const s = r.data && r.data.sala ? r.data.sala : null;
+    if(!r.data.found || !s || !s.roomCode){ status('No hay salas dentro del radio. Ingresa manualmente.', false); return; }
+    $room.value = normalizeRoom(s.roomCode);
+    try{ sessionStorage.setItem('gl_room', $room.value); }catch{}
+    const dist = typeof s.distanceMeters==='number' ? `${Math.round(s.distanceMeters)} m` : '';
+    status(`Sala sugerida: ${$room.value}${dist? ' · '+dist:''}`);
+    refreshFab();
+  }catch(e){ status(`Geo/flujo no disponible: ${e.message}. Ingresa sala manualmente.`, false); }
+})();
 </script>
 </body>
 </html>
