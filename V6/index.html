@@ -106,7 +106,8 @@ const $fab  = document.getElementById('fabGo');
 const $msg  = document.getElementById('msg');
 
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
-/* function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); } */
+
+  /* function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); } */
 
 // ✅ NUEVA implementación: por defecto NO toca el valor
 function normalizeRoom(v, {
@@ -121,7 +122,15 @@ function normalizeRoom(v, {
   return out;
 }
 
-function isValidRoom(v){ return /^[A-Z0-9\-]{1,50}$/.test(v); }
+/* function isValidRoom(v){ return /^[A-Z0-9\-]{1,50}$/.test(v); } */
+
+  
+// ✅ Validación cruda: solo que no esté vacío y que no pase de 50 chars
+function roomIsValidRaw(v) {
+  return typeof v === 'string' && v.length > 0 && v.length <= 50;
+}
+
+
 
 (function preload(){ try{ $user.value = sessionStorage.getItem('gl_user')||''; $room.value = sessionStorage.getItem('gl_room')||''; }catch{} refreshFab(); })();
 function formValid(){ const u=($user.value||'').trim(); const p=($pass.value||'').trim(); const r=normalizeRoom($room.value); return !!(u && p && isValidRoom(r)); }
