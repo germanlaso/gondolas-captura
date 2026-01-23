@@ -139,7 +139,24 @@ let stream=null, photoReady=false, currentJpegB64=null;
 
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; if(DIAG) log(t); }
 function log(){ if(!$log) return; const s=[...arguments].map(a=> typeof a==='string'? a : JSON.stringify(a)).join(' '); $log.textContent += s+'\n'; $log.scrollTop = $log.scrollHeight; }
-function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); }
+
+/* function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); } */
+
+
+// ✅ NUEVA implementación: por defecto NO toca el valor
+function normalizeRoom(v, {
+  toUpper = false,
+  trim = false,
+  removeSpaces = false
+} = {}) {
+  let out = (v ?? '');
+  if (trim) out = out.trim();
+  if (removeSpaces) out = out.replace(/\s+/g, '');
+  if (toUpper) out = out.toUpperCase();
+  return out;
+}
+  
+  
 function getUser(){ return sessionStorage.getItem('gl_user')||''; }
 function getPass(){ return sessionStorage.getItem('gl_pass')||''; }
 function getRoom(){ return sessionStorage.getItem('gl_room')||''; }
