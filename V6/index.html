@@ -107,6 +107,20 @@ const $msg  = document.getElementById('msg');
 
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
 /* function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); } */
+
+// ✅ NUEVA implementación: por defecto NO toca el valor
+function normalizeRoom(v, {
+  toUpper = false,
+  trim = false,
+  removeSpaces = false
+} = {}) {
+  let out = (v ?? '');
+  if (trim) out = out.trim();
+  if (removeSpaces) out = out.replace(/\s+/g, '');
+  if (toUpper) out = out.toUpperCase();
+  return out;
+}
+
 function isValidRoom(v){ return /^[A-Z0-9\-]{1,50}$/.test(v); }
 
 (function preload(){ try{ $user.value = sessionStorage.getItem('gl_user')||''; $room.value = sessionStorage.getItem('gl_room')||''; }catch{} refreshFab(); })();
