@@ -126,7 +126,7 @@ function normalizeRoom(v, {
 
   
 // ✅ Validación cruda: solo que no esté vacío y que no pase de 50 chars
-function roomIsValidRaw(v) {
+function isValidRoom(v) {
   return typeof v === 'string' && v.length > 0 && v.length <= 50;
 }
 
