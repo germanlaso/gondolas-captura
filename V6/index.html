@@ -74,7 +74,7 @@
        autocomplete="off"
        spellcheck="false"
        maxlength="50"
-       placeholder="ej: A01 | 3035-M10JMCARO | SALA INDUSTRIAL NORTE 03" />
+       placeholder="ej: A01" />
 
         </div>
 
@@ -106,7 +106,7 @@ const $fab  = document.getElementById('fabGo');
 const $msg  = document.getElementById('msg');
 
 function status(t, ok=true){ $msg.textContent=t; $msg.style.color=ok?'#a7f3d0':'#fecaca'; }
-function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); }
+/* function normalizeRoom(v){ return (v||'').toUpperCase().trim().replace(/\s+/g,''); } */
 function isValidRoom(v){ return /^[A-Z0-9\-]{1,50}$/.test(v); }
 
 (function preload(){ try{ $user.value = sessionStorage.getItem('gl_user')||''; $room.value = sessionStorage.getItem('gl_room')||''; }catch{} refreshFab(); })();
